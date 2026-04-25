@@ -114,7 +114,6 @@ check_dependencies() {
     if [ ${#missing_tools[@]} -ne 0 ]; then
         log_warn "Brakujące narzędzia: ${missing_tools[*]}"
         log_warn "Konwersja może być ograniczona. Instaluj: apt-get install pandoc poppler-utils"
-        return 1
     fi
     
     return 0
@@ -212,9 +211,9 @@ main() {
         for file in "$INPUT_DIR"/*."$ext"; do
             if [ -f "$file" ]; then
                 if convert_file "$file"; then
-                    ((files_converted++))
+                    files_converted=$((files_converted + 1))
                 else
-                    ((files_failed++))
+                    files_failed=$((files_failed + 1))
                 fi
             fi
         done
