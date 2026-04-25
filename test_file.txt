@@ -1,0 +1,32 @@
+To jest przykładowy plik tekstowy do testowania skryptu chunkowania.
+Linia druga zawiera więcej tekstu dla lepszych testów.
+Trzecia linia też musi coś zawierać.
+Czwarta linia dodaje jeszcze więcej treści.
+Piąta linia kontynuuje nasz testowy dokument.
+Szósta linia jest równie ważna jak poprzednie.
+Siódma linia dodaje kolejne zdanie do testu.
+Ósma linia wypełnia naszą zawartość.
+Dziewiąta linia prawie kończy ten akapit.
+Dziesiąta linia kończy pierwszy blok tekstu.
+
+Jedenasty linia zaczyna nowy akapit w dokumencie.
+Dwunasta linia rozwija naszą historię testową.
+Trzynasta linia dodaje więcej szczegółów.
+Czternasta linia kontynuuje wątek przewodni.
+Piętnasta linia zbliża nas do celu testu.
+Szesnasta linia utrzymuje tempo narracji.
+Siedemnasta linia buduje napięcie.
+Osiemnasta linia prowadzi do rozwiązania.
+Dziewiętnasta linia wyjaśnia szczegóły.
+Dwudziesta linia podsumowuje ten fragment.
+
+Dwadzieścia pierwsza linia zaczyna kolejny rozdział.
+Dwadzieścia druga linia wprowadza nowe elementy.
+Dwadzieścia trzecia linia rozwija temat.
+Dwadzieścia czwarta linia dodaje kontekst.
+Dwadzieścia piąta linia scala informacje.
+Dwadzieścia szósta linia porównuje fakty.
+Dwadzieścia siódma linia analizuje dane.
+Dwadzieścia ósma linia wyciąga wnioski.
+Dwadzieścia dziewiąta linia formułuje tezy.
+Trzydziesta linia zamyka wywód.
