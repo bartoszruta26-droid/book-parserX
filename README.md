@@ -58,24 +58,31 @@ cp config.sh.example config.sh
 
 ## Użycie
 
+Skrypt automatycznie wczytuje pliki z katalogu `/input` i zapisuje je jako `.txt` w katalogu `/tmp`.
+
+### Obsługiwane formaty plików
+
+- `.doc` - Dokumenty Microsoft Word (starsze wersje)
+- `.odt` - OpenDocument Text
+- `.docx` - Dokumenty Microsoft Word (nowsze wersje)
+- `.xls` - Arkusze kalkulacyjne Microsoft Excel (starsze wersje)
+- `.xlsx` - Arkusze kalkulacyjne Microsoft Excel (nowsze wersje)
+- `.pdf` - Dokumenty PDF
+- `.txt` - Pliki tekstowe
+- `.md` - Pliki Markdown
+
 ### Podstawowe uruchomienie
 
 ```bash
-./pipeline.sh input/moja_ksiazka.txt output/przetworzona_ksiazka.txt
+./pipeline.sh
 ```
+
+Skrypt przetworzy wszystkie wspierane pliki z katalogu `/input` i zapisze wyniki w `/tmp`.
 
 ### Tryb szczegółowy (z logowaniem)
 
 ```bash
-./pipeline.sh -v input/moja_ksiazka.txt output/wynik.txt
-```
-
-### Przetwarzanie całego katalogu
-
-```bash
-for file in input/*.txt; do
-    ./pipeline.sh "$file" "output/processed_$(basename $file)"
-done
+./pipeline.sh -v
 ```
 
 ## Konfiguracja
