@@ -32,9 +32,11 @@ Projekt **Book Rewriting Pipeline** to system do przepisywania i przetwarzania k
 ├── pipeline.sh         # Główny skrypt potoku
 ├── config.sh           # Konfiguracja API i parametrów
 ├── input/              # Katalog z plikami wejściowymi (książki)
+├── tmp/                # Pliki tymczasowe (.txt po konwersji)
+├── chunk/              # Chunki po 4096 tokenów z metadanymi JSON
 ├── output/             # Katalog z przetworzonymi wynikami
 ├── logs/               # Logi z procesu przetwarzania
-└── temp/               # Pliki tymczasowe
+└── temp/               # Dodatkowe pliki robocze
 ```
 
 ## Instalacja
@@ -47,7 +49,7 @@ cd book-parserX
 
 2. Utwórz niezbędne katalogi:
 ```bash
-mkdir -p input output logs temp
+mkdir -p input tmp chunk output logs temp
 ```
 
 3. Skonfiguruj zmienne środowiskowe w `config.sh`:
@@ -150,9 +152,43 @@ Edytuj plik `config.sh`, aby ustawić:
 
 ## Jak działa Pipeline?
 
-1. **Etap 1 - qwen-agent**: Analiza struktury książki, podział na rozdziały, identyfikacja głównych wątków
-2. **Etap 2 - qwen-coder**: Przetworzenie struktury, formatowanie, generowanie metadanych
-3. **Etap 3 - qwen3.6-35B-A3B**: Głęboka analiza treści, przepisanie tekstu z zachowaniem stylu i znaczenia
+1. **Wczytanie i konwersja**: Pliki z katalogu `/input` są konwertowane do formatu `.txt` i zapisywane w `/tmp`
+2. **Chunking**: Pliki z `/tmp` są dzielone na chunki po 4096 tokenów i zapisywane w katalogu `/chunk`
+3. **Etap 1 - qwen-agent**: Analiza struktury książki, podział na rozdziały, identyfikacja głównych wątków
+4. **Etap 2 - qwen-coder**: Przetworzenie struktury, formatowanie, generowanie metadanych
+5. **Etap 3 - qwen3.6-35B-A3B**: Głęboka analiza treści, przepisanie tekstu z zachowaniem stylu i znaczenia
+
+### Struktura chunków
+
+Każdy chunk zawiera metadane JSON z następującymi informacjami:
+
+```json
+{
+  "chunk_id": "unikalny_identifikator_chunka",
+  "token_count": 4096,
+  "previous_chunk": "ID poprzedniego chunka lub null",
+  "next_chunk": "ID następnego chunka lub null",
+  "previous_subsection": "ID poprzedniego podrozdziału lub null",
+  "next_subsection": "ID następnego podrozdziału lub null",
+  "subsection": "ID bieżącego podrozdziału",
+  "chapter": "ID rozdziału",
+  "book_summary": "Streszczenie całej książki",
+  "all_books_summary": "Streszczenie wszystkich książek z katalogu /input",
+  "content": "Przetworzony tekst chunka"
+}
+```
+
+Struktura katalogów po przetworzeniu:
+
+```
+/workspace/
+├── input/              # Pliki wejściowe (książki)
+├── tmp/                # Pliki tymczasowe (.txt po konwersji)
+├── chunk/              # Chunki po 4096 tokenów z metadanymi JSON
+├── output/             # Finalne wyniki
+├── logs/               # Logi procesu
+└── temp/               # Dodatkowe pliki robocze
+```
 
 ## Przykładowy przepływ
 
