@@ -1,6 +1,4 @@
-# Script and executable files
-*.sh
-*.bash
+# Script and executable 
 *.bat
 *.exe
 *.dll
