@@ -60,6 +60,72 @@ cp config.sh.example config.sh
 
 Skrypt automatycznie wczytuje pliki z katalogu `/input` i zapisuje je jako `.txt` w katalogu `/tmp`.
 
+### Tryby uruchomienia
+
+Skrypt `pipeline.sh` obsługuje cztery tryby pracy:
+
+#### 1. CLI (Command Line Interface)
+
+Tryb tekstowy w terminalu - domyślny tryb działania:
+
+```bash
+# Uruchomienie w trybie interaktywnym CLI
+./pipeline.sh cli
+
+# Lub bezpośrednio (domyślny tryb)
+./pipeline.sh
+
+# Z konkretnym plikiem
+./pipeline.sh cli input/book.txt
+
+# Tryb szczegółowy
+./pipeline.sh cli -v
+```
+
+#### 2. GUI / TUI (Graphical / Text User Interface)
+
+Tryb z interfejsem użytkownika:
+
+```bash
+# Uruchomienie z interfejsem TUI (tekstowym)
+./pipeline.sh tui
+
+# Uruchomienie z interfejsem GUI (graficznym, jeśli dostępny)
+./pipeline.sh gui
+```
+
+#### 3. WebUI (Web Interface)
+
+Uruchomienie serwera webowego z interfejsem przeglądarkowym:
+
+```bash
+# Start serwera WebUI
+./pipeline.sh webui
+
+# Start na konkretnym porcie
+./pipeline.sh webui --port 8080
+```
+
+Po uruchomieniu interfejs będzie dostępny pod adresem `http://localhost:8080` (lub inny określony port).
+
+#### 4. Daemon (Tryb usługi)
+
+Uruchomienie jako usługa w tle:
+
+```bash
+# Start w trybie daemon
+./pipeline.sh daemon start
+
+# Stop daemon
+./pipeline.sh daemon stop
+
+# Status daemon
+./pipeline.sh daemon status
+
+# Restart daemon
+./pipeline.sh daemon restart
+```
+
 ### Obsługiwane formaty plików
 
 - `.doc` - Dokumenty Microsoft Word (starsze wersje)
@@ -70,20 +136,6 @@ Skrypt automatycznie wczytuje pliki z katalogu `/input` i zapisuje je jako `.txt
 - `.pdf` - Dokumenty PDF
 - `.txt` - Pliki tekstowe
 - `.md` - Pliki Markdown
-
-### Podstawowe uruchomienie
-
-```bash
-./pipeline.sh
-```
-
-Skrypt przetworzy wszystkie wspierane pliki z katalogu `/input` i zapisze wyniki w `/tmp`.
-
-### Tryb szczegółowy (z logowaniem)
-
-```bash
-./pipeline.sh -v
-```
 
 ## Konfiguracja
 
