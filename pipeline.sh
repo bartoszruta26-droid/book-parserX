@@ -682,24 +682,45 @@ run_daemon_mode() {
 
 run_webui_mode() {
     local port="${1:-8080}"
-    
-    print_color $CYAN "Uruchamianie WebUI na porcie $port..."
-    print_color $YELLOW "⚠ Uwaga: WebUI wymaga dodatkowej implementacji"
-    print_color $YELLOW "  Możesz użyć prostego serwera HTTP:"
+    local host="${2:-0.0.0.0}"
+
+    print_color $CYAN "Uruchamianie WebUI..."
+    print_color $WHITE "  Host: $host"
+    print_color $WHITE "  Port: $port"
     echo ""
-    echo "  python3 -m http.server $port --directory $SCRIPT_DIR"
+
+    # Sprawdź czy Python3 jest dostępny
+    if ! command -v python3 >/dev/null 2>&1; then
+        print_color $RED "✗ Błąd: Python3 nie jest zainstalowany"
+        print_color $YELLOW "  Zainstaluj Python3: apt-get install python3"
+        return 1
+    fi
+
+    # Sprawdź czy plik webui.py istnieje
+    if [[ ! -f "$SCRIPT_DIR/webui.py" ]]; then
+        print_color $RED "✗ Błąd: Plik webui.py nie istnieje"
+        return 1
+    fi
+
+    print_color $GREEN "✓ Uruchamianie serwera WebUI..."
     echo ""
-    print_color $YELLOW "  Lub zaimplementować własny serwer w bashu/node.js/python"
-    
-    # Prosta symulacja
+    echo "Dostępne zakładki:"
+    echo "  • Dashboard - przegląd systemu"
+    echo "  • Pliki - zarządzanie plikami"
+    echo "  • Konwersja - konwersja do TXT"
+    echo "  • Chunking - dzielenie na chunki"
+    echo "  • Przepisywanie - AI rewriting"
+    echo "  • Logi - podgląd logów"
+    echo "  • Ustawienia - konfiguracja"
     echo ""
-    echo "Symulacja WebUI:"
-    echo "  → http://localhost:$port"
+    print_color $CYAN "→ Dostęp pod adresem: http://localhost:$port"
     echo ""
-    echo "Naciśnij Ctrl+C aby zatrzymać"
-    
-    # Gdyby był prawdziwy serwer:
-    # cd "$SCRIPT_DIR" && python3 -m http.server "$port"
+    echo "Naciśnij Ctrl+C aby zatrzymać serwer"
+    echo ""
+
+    # Uruchomienie serwera WebUI
+    cd "$SCRIPT_DIR"
+    python3 webui.py --port "$port" --host "$host"
 }
 
 run_gui_mode() {
