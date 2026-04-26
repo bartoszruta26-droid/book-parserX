@@ -6,18 +6,19 @@
 #   1. qwen-coder - analiza struktury, formatowanie, generowanie metadanych
 #   2. qwen3.6-35B-A3B - głęboka analiza treści, przepisanie tekstu
 #
-# Użycie: ./rewrite_chunks.sh
+# Użycie: ./rewrite_chunks.sh [-o output_dir] [chunk_dir]
 #
 
 set -e
 
-# Ścieżki do katalogów
-CHUNK_DIR="/workspace/chunk"
-REWRITE_DIR="/workspace/rewrite"
-LOG_DIR="/workspace/logs"
+# Ścieżki do katalogów (względne od lokalizacji skryptu)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CHUNK_DIR="${1:-$SCRIPT_DIR/chunk}"
+OUTPUT_DIR="$SCRIPT_DIR/output"
+LOG_DIR="$SCRIPT_DIR/logs"
 
 # Plik konfiguracyjny
-CONFIG_FILE="/workspace/config.sh"
+CONFIG_FILE="$SCRIPT_DIR/config.sh"
 
 # Ładowanie konfiguracji jeśli istnieje
 if [[ -f "$CONFIG_FILE" ]]; then
@@ -102,7 +103,7 @@ rewrite_with_large_model() {
 process_chunk() {
     local chunk_file="$1"
     local filename=$(basename "$chunk_file")
-    local output_file="$REWRITE_DIR/${filename%.json}_rewritten.json"
+    local output_file="$OUTPUT_DIR/${filename%.json}_rewritten.json"
     
     log "INFO" "Przetwarzanie pliku: $filename"
     
@@ -178,7 +179,7 @@ main() {
     fi
     
     # Utworzenie katalogu output jeśli nie istnieje
-    mkdir -p "$REWRITE_DIR"
+    mkdir -p "$OUTPUT_DIR"
     mkdir -p "$LOG_DIR"
     
     # Liczniki
@@ -219,6 +220,9 @@ main() {
     if [[ $failed -gt 0 ]]; then
         exit 1
     fi
+    
+    log "INFO" "Przetwarzanie zakończone. Wyniki zapisane w: $OUTPUT_DIR"
+    exit 0
 }
 
 # Uruchomienie skryptu

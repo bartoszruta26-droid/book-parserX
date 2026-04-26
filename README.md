@@ -38,9 +38,10 @@ Projekt **Book Rewriting Pipeline** to system do przepisywania i przetwarzania k
 ├── input/              # Katalog z plikami wejściowymi (książki)
 ├── tmp/                # Pliki tymczasowe (.txt po konwersji)
 ├── chunk/              # Chunki po 4096 tokenów z metadanymi JSON
-├── output/             # Katalog z przetworzonymi wynikami
+├── output/             # Przetworzone chunki (JSON z przepisaną treścią)
 ├── logs/               # Logi z procesu przetwarzania
 └── temp/               # Dodatkowe pliki robocze
+/finish/                # Finalne książki (złożone z chunków)
 ```
 
 ## Instalacja
@@ -136,7 +137,10 @@ Skrypt do przepisywania chunków z wykorzystaniem modeli AI Qwen:
 # Przepisanie wszystkich chunków z katalogu /chunk
 ./rewrite_chunks.sh
 
-# Wyniki są zapisywane w katalogu /workspace/rewrite
+# Z niestandardowym katalogiem chunków
+./rewrite_chunks.sh /moje/chunki
+
+# Wyniki są zapisywane w katalogu /workspace/output
 ```
 
 Skrypt wymaga skonfigurowanego pliku `config.sh` z:
@@ -147,6 +151,8 @@ Skrypt wymaga skonfigurowanego pliku `config.sh` z:
 **Proces przepisywania:**
 1. **qwen-coder** - analiza struktury tekstu, formatowanie, generowanie metadanych
 2. **qwen3.6-35B-A3B** - głęboka analiza treści i przepisanie tekstu
+
+Po zakończeniu przepisywania, pipeline automatycznie składa książkę z przetworzonych chunków i zapisuje ją w katalogu `/finish`.
 
 #### 4. webui.py
 
@@ -295,9 +301,11 @@ Struktura katalogów po przetworzeniu:
 ├── input/              # Pliki wejściowe (książki)
 ├── tmp/                # Pliki tymczasowe (.txt po konwersji)
 ├── chunk/              # Chunki po 4096 tokenów z metadanymi JSON
-├── output/             # Finalne wyniki
+├── output/             # Przetworzone chunki (JSON z przepisaną treścią)
 ├── logs/               # Logi procesu
 └── temp/               # Dodatkowe pliki robocze
+
+/finish/                # Finalne książki (złożone z przetworzonych chunków)
 ```
 
 ## Przykładowy przepływ
