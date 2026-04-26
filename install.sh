@@ -52,6 +52,10 @@ print_warning() {
     echo -e "${YELLOW}⚠${NC} $1"
 }
 
+print_info() {
+    echo -e "${BLUE}ℹ${NC} $1"
+}
+
 print_error() {
     echo -e "${RED}✗${NC} $1"
 }
@@ -295,13 +299,13 @@ create_directories() {
     print_step "Tworzenie struktury katalogów"
     
     local directories=(
-        "input"
-        "tmp"
-        "chunk"
-        "output"
-        "logs"
-        "temp"
-        "/finish"
+        "$SCRIPT_DIR/input"
+        "$SCRIPT_DIR/tmp"
+        "$SCRIPT_DIR/chunk"
+        "$SCRIPT_DIR/output"
+        "$SCRIPT_DIR/logs"
+        "$SCRIPT_DIR/temp"
+        "$SCRIPT_DIR/finish"
     )
     
     for dir in "${directories[@]}"; do
@@ -414,7 +418,7 @@ INPUT_DIR="./input"
 TMP_DIR="./tmp"
 CHUNK_DIR="./chunk"
 OUTPUT_DIR="./output"
-FINISH_DIR="/finish"
+FINISH_DIR="./finish"
 LOGS_DIR="./logs"
 TEMP_DIR="./temp"
 
