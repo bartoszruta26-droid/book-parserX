@@ -29,7 +29,11 @@ Projekt **Book Rewriting Pipeline** to system do przepisywania i przetwarzania k
 ```
 /workspace/
 ├── README.md           # Ten plik
-├── pipeline.sh         # Główny skrypt potoku
+├── pipeline.sh         # Główny skrypt potoku z interfejsem TUI
+├── convert_to_txt.sh   # Skrypt do konwersji plików na format TXT
+├── chunk_script.sh     # Skrypt do dzielenia plików na chunki
+├── rewrite_chunks.sh   # Skrypt do przepisywania chunków z AI
+├── webui.py            # Interfejs webowy (WebUI)
 ├── config.sh           # Konfiguracja API i parametrów
 ├── input/              # Katalog z plikami wejściowymi (książki)
 ├── tmp/                # Pliki tymczasowe (.txt po konwersji)
@@ -62,9 +66,115 @@ cp config.sh.example config.sh
 
 Skrypt automatycznie wczytuje pliki z katalogu `/input` i zapisuje je jako `.txt` w katalogu `/tmp`.
 
-### Tryby uruchomienia
+### Skrypty pomocnicze
 
-Skrypt `pipeline.sh` obsługuje cztery tryby pracy:
+Projekt zawiera następujące skrypty:
+
+#### 1. convert_to_txt.sh
+
+Skrypt do konwersji różnych formatów plików na `.txt`:
+
+```bash
+# Konwersja wszystkich plików z katalogu /input
+./convert_to_txt.sh
+
+# Konwersja z konkretnym katalogiem wejściowym i wyjściowym
+./convert_to_txt.sh -i /moje/pliki -o /wyniki
+
+# Konwersja tylko plików PDF w trybie szczegółowym
+./convert_to_txt.sh -f pdf -v
+
+# Nadpisanie istniejących plików
+./convert_to_txt.sh --force
+
+# Wyświetlenie pomocy
+./convert_to_txt.sh --help
+```
+
+**Opcje:**
+- `-i, --input DIR` - Katalog wejściowy (domyślnie: /input)
+- `-o, --output DIR` - Katalog wyjściowy (domyślnie: /tmp)
+- `-f, --format FORMAT` - Format plików (doc, docx, pdf, rtf, odt, all)
+- `-v, --verbose` - Tryb szczegółowy
+- `-F, --force` - Nadpisanie istniejących plików
+
+**Obsługiwane formaty:** .doc, .docx, .pdf, .odt, .rtf, .html, .md, .txt
+
+#### 2. chunk_script.sh
+
+Skrypt do dzielenia plików tekstowych na chunki (~4096 tokenów):
+
+```bash
+# Podział pliku na chunki
+./chunk_script.sh /tmp/book.txt
+
+# Z niestandardowym rozmiarem chunka (w tokenach)
+./chunk_script.sh -s 2048 /tmp/book.txt
+
+# Z innym katalogiem wyjściowym
+./chunk_script.sh -o /moje/chunki /tmp/book.txt
+
+# Wyświetlenie pomocy
+./chunk_script.sh -h
+```
+
+**Opcje:**
+- `-s rozmiar` - Rozmiar chunka w tokenach (domyślnie: 4096)
+- `-o katalog` - Katalog wyjściowy (domyślnie: /chunk)
+
+Każdy chunk zawiera metadane JSON z informacjami o:
+- `chunk_id` - unikalny identyfikator
+- `token_count` - liczba tokenów
+- `previous_chunk` / `next_chunk` - linki do sąsiednich chunków
+- `line_start` / `line_end` - zakres linii w oryginalnym pliku
+
+#### 3. rewrite_chunks.sh
+
+Skrypt do przepisywania chunków z wykorzystaniem modeli AI Qwen:
+
+```bash
+# Przepisanie wszystkich chunków z katalogu /chunk
+./rewrite_chunks.sh
+
+# Wyniki są zapisywane w katalogu /workspace/rewrite
+```
+
+Skrypt wymaga skonfigurowanego pliku `config.sh` z:
+- `QWEN_API_KEY` - klucz API
+- `QWEN_CODER_URL` - endpoint dla qwen-coder
+- `QWEN_LARGE_MODEL_URL` - endpoint dla qwen3.6-35B-A3B
+
+**Proces przepisywania:**
+1. **qwen-coder** - analiza struktury tekstu, formatowanie, generowanie metadanych
+2. **qwen3.6-35B-A3B** - głęboka analiza treści i przepisanie tekstu
+
+#### 4. webui.py
+
+Interfejs webowy do zarządzania całym procesem:
+
+```bash
+# Uruchomienie WebUI
+python3 webui.py --port 8080
+
+# Lub przez pipeline.sh
+./pipeline.sh webui
+
+# Na konkretnym porcie
+./pipeline.sh webui --port 8080
+```
+
+**Dostępne zakładki:**
+- Dashboard - przegląd systemu i statystyki
+- Pliki - zarządzanie plikami w katalogach
+- Konwersja - konwersja plików do TXT
+- Chunking - dzielenie na chunki
+- Przepisywanie - AI rewriting chunków
+- Logi - podgląd logów procesu
+- Ustawienia - konfiguracja API
+
+### Tryby uruchomienia pipeline.sh
+
+Skrypt `pipeline.sh` obsługuje pięć trybów pracy:
 
 #### 1. CLI (Command Line Interface)
 
@@ -253,6 +363,31 @@ MIT License - zobacz plik [LICENSE](LICENSE)
 ## Kontakt i Wsparcie
 
 W przypadku pytań i problemów proszę otworzyć issue w repozytorium.
+
+## Podsumowanie funkcji
+
+### Skrypty bash:
+
+| Skrypt | Funkcja | Kluczowe opcje |
+|--------|---------|----------------|
+| `pipeline.sh` | Główny skrypt z interfejsem TUI | `cli`, `tui`, `webui`, `daemon`, `gui` |
+| `convert_to_txt.sh` | Konwersja plików do TXT | `-i`, `-o`, `-f`, `-v`, `--force` |
+| `chunk_script.sh` | Dzielenie na chunki (~4096 tokenów) | `-s`, `-o` |
+| `rewrite_chunks.sh` | Przepisywanie chunków z AI | (brak opcji, wymaga config.sh) |
+
+### Python:
+
+| Skrypt | Funkcja | Opcje |
+|--------|---------|-------|
+| `webui.py` | Interfejs webowy | `--port`, `--host` |
+
+### Tryby pracy pipeline.sh:
+
+1. **CLI** - tryb tekstowy z argumentami wiersza poleceń
+2. **TUI** - interfejs menu w terminalu (domyślny)
+3. **WebUI** - serwer webowy z pełnym interfejsem
+4. **Daemon** - usługa w tle monitorująca katalog input
+5. **GUI** - interfejs graficzny (wymaga zenity)
 
 ---
 
