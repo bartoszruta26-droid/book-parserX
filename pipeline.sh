@@ -14,6 +14,7 @@ INPUT_DIR="$SCRIPT_DIR/input"
 TMP_DIR="$SCRIPT_DIR/tmp"
 CHUNK_DIR="$SCRIPT_DIR/chunk"
 OUTPUT_DIR="$SCRIPT_DIR/output"
+FINISH_DIR="/finish"
 LOGS_DIR="$SCRIPT_DIR/logs"
 TEMP_DIR="$SCRIPT_DIR/temp"
 
@@ -109,7 +110,7 @@ clear_screen() {
 
 init_directories() {
     log "INFO" "Inicjalizacja katalogów..."
-    mkdir -p "$INPUT_DIR" "$TMP_DIR" "$CHUNK_DIR" "$OUTPUT_DIR" "$LOGS_DIR" "$TEMP_DIR"
+    mkdir -p "$INPUT_DIR" "$TMP_DIR" "$CHUNK_DIR" "$OUTPUT_DIR" "$FINISH_DIR" "$LOGS_DIR" "$TEMP_DIR"
     print_color $GREEN "✓ Katalogi zostały utworzone"
 }
 
@@ -333,6 +334,8 @@ run_rewrite() {
     
     if [[ $result -eq 0 ]]; then
         print_color $GREEN "✓ Przepisywanie zakończone sukcesem"
+        print_color $GREEN "✓ Wyniki zapisane w katalogu: $OUTPUT_DIR"
+        assemble_book
     else
         print_color $RED "✗ Przepisywanie zakończone błędem (sprawdź konfigurację API)"
     fi
@@ -377,6 +380,70 @@ run_full_pipeline() {
 }
 
 # ============================================================================
+# FUNKCJE SKŁADANIA KSIĄŻKI
+# ============================================================================
+
+assemble_book() {
+    print_menu_header "Składanie książki"
+    
+    log "INFO" "Rozpoczynanie składania książki..."
+    
+    # Sprawdzenie czy katalog output istnieje i zawiera pliki
+    if [[ ! -d "$OUTPUT_DIR" ]] || [[ -z "$(ls -A "$OUTPUT_DIR" 2>/dev/null)" ]]; then
+        log "WARN" "Brak przetworzonych chunków w $OUTPUT_DIR"
+        return 1
+    fi
+    
+    # Utworzenie katalogu /finish jeśli nie istnieje
+    mkdir -p "$FINISH_DIR"
+    
+    local book_name="book_$(date +%Y%m%d_%H%M%S)"
+    local final_file="$FINISH_DIR/${book_name}.txt"
+    local temp_merged="$TEMP_DIR/merged_book.txt"
+    
+    echo "Składanie przetworzonych chunków..."
+    echo ""
+    
+    # Połączenie wszystkich przetworzonych chunków w kolejności
+    > "$temp_merged"
+    
+    local chunk_count=0
+    for chunk_file in "$OUTPUT_DIR"/*_rewritten.json; do
+        if [[ -f "$chunk_file" ]]; then
+            # Ekstrakcja content z JSON i dodanie do pliku
+            if command -v jq >/dev/null 2>&1; then
+                jq -r '.content // empty' "$chunk_file" >> "$temp_merged"
+                echo "" >> "$temp_merged"
+                ((chunk_count++)) || true
+            else
+                # Fallback bez jq - próba ekstrakcji content ręcznie
+                grep -o '"content"[[:space:]]*:[[:space:]]*"[^"]*"' "$chunk_file" | \
+                    sed 's/"content"[[:space:]]*:[[:space:]]*"//;s/"$//' >> "$temp_merged"
+                echo "" >> "$temp_merged"
+                ((chunk_count++)) || true
+            fi
+        fi
+    done
+    
+    if [[ $chunk_count -eq 0 ]]; then
+        log "ERROR" "Nie znaleziono przetworzonych chunków"
+        print_color $RED "✗ Nie znaleziono przetworzonych chunków w $OUTPUT_DIR"
+        return 1
+    fi
+    
+    # Przeniesienie finalnego pliku
+    mv "$temp_merged" "$final_file"
+    
+    log "INFO" "Książka została złożona: $final_file"
+    print_color $GREEN "✓ Książka została złożona sukcesem!"
+    print_color $WHITE "  Plik: $final_file"
+    print_color $WHITE "  Liczba chunków: $chunk_count"
+    print_color $WHITE "  Katalog docelowy: $FINISH_DIR"
+    
+    return 0
+}
+
+# ============================================================================
 # FUNKCJE TUI - MENU
 # ============================================================================
 
@@ -384,7 +451,7 @@ show_status() {
     print_menu_header "Status systemu"
     
     echo -e "  ${BOLD}Katalogi:${NC}"
-    for dir in "$INPUT_DIR" "$TMP_DIR" "$CHUNK_DIR" "$OUTPUT_DIR" "$LOGS_DIR"; do
+    for dir in "$INPUT_DIR" "$TMP_DIR" "$CHUNK_DIR" "$OUTPUT_DIR" "$FINISH_DIR" "$LOGS_DIR"; do
         if [[ -d "$dir" ]]; then
             local count=$(find "$dir" -maxdepth 1 -type f 2>/dev/null | wc -l)
             echo -e "    ${GREEN}✓${NC} $dir ${DIM}($count plików)${NC}"
