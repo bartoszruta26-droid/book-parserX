@@ -160,7 +160,7 @@ python3 webui.py --port 8080
 ./pipeline.sh webui
 
 # Na konkretnym porcie
-./pipeline.sh webui --port 8080
+./pipeline.sh webui 8080
 ```
 
 **Dostępne zakładki:**
@@ -215,7 +215,7 @@ Uruchomienie serwera webowego z interfejsem przeglądarkowym:
 ./pipeline.sh webui
 
 # Start na konkretnym porcie
-./pipeline.sh webui --port 8080
+./pipeline.sh webui 8080
 ```
 
 Po uruchomieniu interfejs będzie dostępny pod adresem `http://localhost:8080` (lub inny określony port).
