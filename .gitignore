@@ -1,1 +1,1 @@
-Nothing should be ignored since the changes only include source/config files (.md, .sh) without any build artifacts, dependencies, or temporary files.
+Nothing should be ignored in this case. The added and modified files (install.sh, requirements.txt, README.md) are all source/config files that should be tracked in version control. There are no build artifacts, dependencies, or temporary files in the changes that would warrant adding ignore rules.

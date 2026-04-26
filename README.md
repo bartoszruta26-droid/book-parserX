@@ -29,22 +29,69 @@ Projekt **Book Rewriting Pipeline** to system do przepisywania i przetwarzania k
 ```
 /workspace/
 ├── README.md           # Ten plik
+├── install.sh          # Skrypt instalacyjny i konfiguracyjny [NOWOŚĆ]
 ├── pipeline.sh         # Główny skrypt potoku z interfejsem TUI
 ├── convert_to_txt.sh   # Skrypt do konwersji plików na format TXT
 ├── chunk_script.sh     # Skrypt do dzielenia plików na chunki
 ├── rewrite_chunks.sh   # Skrypt do przepisywania chunków z AI
 ├── webui.py            # Interfejs webowy (WebUI)
 ├── config.sh           # Konfiguracja API i parametrów
+├── config.sh.example   # Przykładowy plik konfiguracyjny [NOWOŚĆ]
+├── requirements.txt    # Zależności Python [NOWOŚĆ]
+├── start_vllm.sh       # Skrypt startowy dla vLLM (opcjonalny)
 ├── input/              # Katalog z plikami wejściowymi (książki)
 ├── tmp/                # Pliki tymczasowe (.txt po konwersji)
 ├── chunk/              # Chunki po 4096 tokenów z metadanymi JSON
 ├── output/             # Przetworzone chunki (JSON z przepisaną treścią)
 ├── logs/               # Logi z procesu przetwarzania
-└── temp/               # Dodatkowe pliki robocze
-/finish/                # Finalne książki (złożone z chunków)
+├── temp/               # Dodatkowe pliki robocze
+├── venv/               # Wirtualne środowisko Python
+└── /finish/            # Finalne książki (złożone z chunków)
 ```
 
 ## Instalacja
+
+### Szybki start
+
+Najprostszy sposób instalacji:
+
+```bash
+# 1. Sklonuj repozytorium
+git clone <repository-url>
+cd book-parserX
+
+# 2. Uruchom skrypt instalacyjny
+./install.sh
+
+# 3. Skonfiguruj API
+nano config.sh
+
+# 4. Uruchom pipeline
+./pipeline.sh
+```
+
+### Opcje instalacji
+
+Skrypt `install.sh` obsługuje różne tryby instalacji:
+
+```bash
+# Standardowa instalacja
+./install.sh
+
+# Instalacja z modelami AI (Ollama/vLLM)
+./install.sh --models
+
+# Tylko interaktywna konfiguracja API
+./install.sh --configure
+
+# Pełna instalacja z verbose
+./install.sh --models --configure --verbose
+
+# Pominięcie instalacji zależności systemowych
+./install.sh --skip-deps
+```
+
+### Ręczna instalacja
 
 1. Sklonuj repozytorium:
 ```bash
@@ -52,15 +99,42 @@ git clone <repository-url>
 cd book-parserX
 ```
 
-2. Utwórz niezbędne katalogi:
+2. Zainstaluj zależności systemowe:
+
+**Debian/Ubuntu:**
 ```bash
-mkdir -p input tmp chunk output logs temp
+sudo apt-get update
+sudo apt-get install -y curl jq git wget unzip python3 python3-pip python3-venv pandoc poppler-utils
 ```
 
-3. Skonfiguruj zmienne środowiskowe w `config.sh`:
+**RHEL/CentOS/Fedora:**
+```bash
+sudo dnf install -y curl jq git wget unzip python3 python3-pip
+```
+
+**Arch Linux:**
+```bash
+sudo pacman -S curl jq git wget unzip python python-pip pandoc
+```
+
+3. Utwórz wirtualne środowisko Python:
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install requests flask gradio
+```
+
+4. Utwórz niezbędne katalogi:
+```bash
+mkdir -p input tmp chunk output logs temp /finish
+```
+
+5. Skonfiguruj zmienne środowiskowe:
 ```bash
 cp config.sh.example config.sh
 # Edytuj config.sh i dodaj swoje klucze API
+chmod 600 config.sh
 ```
 
 ## Użycie
@@ -378,10 +452,12 @@ W przypadku pytań i problemów proszę otworzyć issue w repozytorium.
 
 | Skrypt | Funkcja | Kluczowe opcje |
 |--------|---------|----------------|
+| `install.sh` | Instalacja i konfiguracja systemu | `-m`, `-c`, `-s`, `-v`, `--help` [NOWOŚĆ] |
 | `pipeline.sh` | Główny skrypt z interfejsem TUI | `cli`, `tui`, `webui`, `daemon`, `gui` |
 | `convert_to_txt.sh` | Konwersja plików do TXT | `-i`, `-o`, `-f`, `-v`, `--force` |
 | `chunk_script.sh` | Dzielenie na chunki (~4096 tokenów) | `-s`, `-o` |
 | `rewrite_chunks.sh` | Przepisywanie chunków z AI | (brak opcji, wymaga config.sh) |
+| `start_vllm.sh` | Uruchamianie serwera vLLM | (brak opcji, generowany automatycznie) [NOWOŚĆ] |
 
 ### Python:
 
