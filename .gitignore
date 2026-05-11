@@ -1,5 +1,12 @@
 ```
-# Compiled and build artifacts
+# Build artifacts and results
+results/
+*.json
+
+# Dependencies
+.venv/
+venv/
+__pycache__/
 *.pyc
 __pycache__/
 *.o
@@ -28,6 +35,11 @@ target/
 *.swp
 *.swo
 
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+
 # Environment
 .env
 .env.local
@@ -37,36 +49,7 @@ target/
 .vscode/
 .idea/
 
-# System files
+# OS
 .DS_Store
 Thumbs.db
-
-# Coverage
-coverage/
-htmlcov/
-.coverage
-
-# Compressed files
-*.zip
-*.gz
-*.tar
-*.tgz
-*.bz2
-*.xz
-*.7z
-*.rar
-*.zst
-*.lz4
-*.lzh
-*.cab
-*.arj
-*.rpm
-*.deb
-*.Z
-*.lz
-*.lzo
-*.tar.gz
-*.tar.bz2
-*.tar.xz
-*.tar.zst
 ```

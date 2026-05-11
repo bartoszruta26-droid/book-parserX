@@ -1,0 +1,50 @@
+{
+  "timestamp": "2026-05-11T07:12:28.770769",
+  "master_node": "rpi4-1",
+  "total_queries": 3,
+  "total_responses": 0,
+  "queries": [
+    {
+      "query_index": 0,
+      "query": "Wyjaśnij czym jest rekurencja w programowaniu",
+      "ai_responses": {},
+      "successful_platforms": [],
+      "failed_platforms": [
+        "local_llm",
+        "local_llm",
+        "local_llm",
+        "coder.qwen.ai",
+        "chatgpt.com",
+        "grok.com"
+      ]
+    },
+    {
+      "query_index": 1,
+      "query": "Jak optimize'ować zapytania SQL?",
+      "ai_responses": {},
+      "successful_platforms": [],
+      "failed_platforms": [
+        "local_llm",
+        "local_llm",
+        "local_llm",
+        "coder.qwen.ai",
+        "chatgpt.com",
+        "grok.com"
+      ]
+    },
+    {
+      "query_index": 2,
+      "query": "Napisz funkcję Python obliczającą silnię",
+      "ai_responses": {},
+      "successful_platforms": [],
+      "failed_platforms": [
+        "local_llm",
+        "local_llm",
+        "local_llm",
+        "coder.qwen.ai",
+        "chatgpt.com",
+        "grok.com"
+      ]
+    }
+  ]
+}

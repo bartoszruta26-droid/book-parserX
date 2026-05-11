@@ -6,6 +6,57 @@
     "login_url": "https://coder.qwen.ai/login",
     "api_endpoint": "https://coder.qwen.ai/api/v1/chat/completions"
   },
+  "chatgpt": {
+    "email": "",
+    "password": "",
+    "base_url": "https://chatgpt.com",
+    "login_url": "https://chatgpt.com/auth/login"
+  },
+  "grok": {
+    "email": "",
+    "password": "",
+    "base_url": "https://grok.com",
+    "login_url": "https://grok.com/login"
+  },
+  "credentials_profiles": {
+    "qwen_profile_1": {
+      "platform": "coder.qwen.ai",
+      "email": "user1@example.com",
+      "password": ""
+    },
+    "qwen_profile_2": {
+      "platform": "coder.qwen.ai",
+      "email": "user2@example.com",
+      "password": ""
+    },
+    "chatgpt_profile_1": {
+      "platform": "chatgpt.com",
+      "email": "chatgpt_user1@example.com",
+      "password": ""
+    },
+    "chatgpt_profile_2": {
+      "platform": "chatgpt.com",
+      "email": "chatgpt_user2@example.com",
+      "password": ""
+    },
+    "grok_profile_1": {
+      "platform": "grok.com",
+      "email": "grok_user1@example.com",
+      "password": ""
+    },
+    "grok_profile_2": {
+      "platform": "grok.com",
+      "email": "grok_user2@example.com",
+      "password": ""
+    }
+  },
+  "local_llm": {
+    "enabled": true,
+    "model": "llama-2-7b",
+    "port": 5000,
+    "host": "localhost",
+    "api_endpoint": "http://localhost:5000/v1/chat/completions"
+  },
   "cluster": {
     "nodes": [
       {
@@ -13,46 +64,59 @@
         "type": "rpi4",
         "host": "192.168.1.101",
         "port": 8080,
-        "cores": 4
+        "cores": 4,
+        "ai_platform": "local_llm",
+        "llm_model": "llama-2-7b"
       },
       {
         "id": "rpi4-2",
         "type": "rpi4",
         "host": "192.168.1.102",
         "port": 8080,
-        "cores": 4
+        "cores": 4,
+        "ai_platform": "local_llm",
+        "llm_model": "llama-2-7b"
       },
       {
         "id": "rpi4-3",
         "type": "rpi4",
         "host": "192.168.1.103",
         "port": 8080,
-        "cores": 4
+        "cores": 4,
+        "ai_platform": "local_llm",
+        "llm_model": "llama-2-7b"
       },
       {
         "id": "rpi1-1",
         "type": "rpi1",
         "host": "192.168.1.104",
         "port": 8080,
-        "cores": 1
+        "cores": 1,
+        "ai_platform": "coder.qwen.ai",
+        "credentials_profile": "qwen_profile_1"
       },
       {
         "id": "rpi1-2",
         "type": "rpi1",
         "host": "192.168.1.105",
         "port": 8080,
-        "cores": 1
+        "cores": 1,
+        "ai_platform": "chatgpt.com",
+        "credentials_profile": "chatgpt_profile_1"
       },
       {
         "id": "rpi1-3",
         "type": "rpi1",
         "host": "192.168.1.106",
         "port": 8080,
-        "cores": 1
+        "cores": 1,
+        "ai_platform": "grok.com",
+        "credentials_profile": "grok_profile_1"
       }
     ],
     "mode": "serial",
-    "current_node": 0
+    "current_node": 0,
+    "master_node": "rpi4-1"
   },
   "browser": {
     "headless": false,
@@ -62,6 +126,13 @@
   "processing": {
     "max_retries": 3,
     "retry_delay": 5,
-    "task_timeout": 300
+    "task_timeout": 300,
+    "aggregation_enabled": true
+  },
+  "moodle": {
+    "url": "",
+    "token": "",
+    "course_id": "",
+    "section_id": ""
   }
 }
