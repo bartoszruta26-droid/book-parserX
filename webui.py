@@ -1,11 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Book Rewriting Pipeline - WebUI
-Interfejs webowy do zarządzania procesem przepisywania książek z wykorzystaniem AI
+Book Rewriting Pipeline - WebUI v2.0
+Rozszerzony interfejs webowy z integracją Qwen-Agent i obsługą klastra Raspberry Pi
+
+Funkcje:
+    - Zarządzanie pipeline'em przepisywania książek z AI
+    - Obsługa klastra 6节点 (3x RPi4 + 3x RPi1) w trybie szeregowym/równoległym
+    - Integracja z Qwen-Agent framework dla zaawansowanej orkiestracji
+    - Monitorowanie zadań w czasie rzeczywistym
+    - Kolejka zadań z priorytetami
 
 Uruchomienie:
     python3 webui.py --port 8080
+    
+Tryb klaster:
+    python3 webui.py --cluster --nodes 6 --mode serial
 
 Lub z poziomu pipeline.sh:
     ./pipeline.sh webui
@@ -18,7 +28,11 @@ import subprocess
 import threading
 import socket
 import hashlib
+import time
+import queue
+import uuid
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 import html
@@ -36,9 +50,33 @@ CHUNK_DIR = os.path.join(SCRIPT_DIR, "chunk")
 OUTPUT_DIR = os.path.join(SCRIPT_DIR, "output")
 LOGS_DIR = os.path.join(SCRIPT_DIR, "logs")
 TEMP_DIR = os.path.join(SCRIPT_DIR, "temp")
+CLUSTER_DIR = os.path.join(SCRIPT_DIR, "cluster")
+TASKS_DIR = os.path.join(SCRIPT_DIR, "tasks")
 
 DEFAULT_PORT = 8080
 HOST = "0.0.0.0"
+
+# Konfiguracja klastra
+CLUSTER_CONFIG = {
+    "enabled": False,
+    "nodes": [],
+    "mode": "serial",  # serial, parallel, hybrid
+    "current_node": 0,
+    "task_queue": [],
+    "active_tasks": {},
+    "completed_tasks": [],
+    "failed_tasks": []
+}
+
+# Domyślna konfiguracja节点 dla Raspberry Pi
+DEFAULT_RPI_NODES = [
+    {"id": "rpi4-1", "type": "rpi4", "host": "192.168.1.101", "port": 8080, "cores": 4, "ram": "4GB/8GB"},
+    {"id": "rpi4-2", "type": "rpi4", "host": "192.168.1.102", "port": 8080, "cores": 4, "ram": "4GB/8GB"},
+    {"id": "rpi4-3", "type": "rpi4", "host": "192.168.1.103", "port": 8080, "cores": 4, "ram": "4GB/8GB"},
+    {"id": "rpi1-1", "type": "rpi1", "host": "192.168.1.104", "port": 8080, "cores": 1, "ram": "512MB"},
+    {"id": "rpi1-2", "type": "rpi1", "host": "192.168.1.105", "port": 8080, "cores": 1, "ram": "512MB"},
+    {"id": "rpi1-3", "type": "rpi1", "host": "192.168.1.106", "port": 8080, "cores": 1, "ram": "512MB"},
+]
 
 # ============================================================================
 # FUNKCJE POMOCNICZE
@@ -47,8 +85,280 @@ HOST = "0.0.0.0"
 
 def ensure_directories():
     """Tworzy niezbędne katalogi jeśli nie istnieją."""
-    for directory in [INPUT_DIR, TMP_DIR, CHUNK_DIR, OUTPUT_DIR, LOGS_DIR, TEMP_DIR]:
+    for directory in [INPUT_DIR, TMP_DIR, CHUNK_DIR, OUTPUT_DIR, LOGS_DIR, TEMP_DIR, CLUSTER_DIR, TASKS_DIR]:
         os.makedirs(directory, exist_ok=True)
+
+
+# ============================================================================
+# FUNKCJE KLASTRA I ORKIESTRACJI (Qwen-Agent inspired)
+# ============================================================================
+
+def init_cluster_config():
+    """Inicjalizuje konfigurację klastra z domyślnymi节点 Raspberry Pi."""
+    CLUSTER_CONFIG["nodes"] = DEFAULT_RPI_NODES.copy()
+    CLUSTER_CONFIG["enabled"] = True
+    save_cluster_config()
+
+
+def save_cluster_config():
+    """Zapisuje konfigurację klastra do pliku JSON."""
+    config_path = os.path.join(CLUSTER_DIR, "cluster_config.json")
+    with open(config_path, 'w', encoding='utf-8') as f:
+        json.dump(CLUSTER_CONFIG, f, indent=2, ensure_ascii=False)
+
+
+def load_cluster_config():
+    """Ładuje konfigurację klastra z pliku JSON."""
+    config_path = os.path.join(CLUSTER_DIR, "cluster_config.json")
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                loaded_config = json.load(f)
+                CLUSTER_CONFIG.update(loaded_config)
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def create_task(task_type, data, priority=5, target_node=None):
+    """
+    Tworzy nowe zadanie w systemie.
+    
+    Args:
+        task_type: Typ zadania (convert, chunk, rewrite, assemble, upload)
+        data: Dane zadania (np. nazwa pliku, parametry)
+        priority: Priorytet 1-10 (1=najwyższy)
+        target_node: ID node'a docelowego lub None dla auto-selection
+    
+    Returns:
+        task_id: Unikalny identyfikator zadania
+    """
+    task_id = str(uuid.uuid4())[:8]
+    task = {
+        "id": task_id,
+        "type": task_type,
+        "data": data,
+        "priority": priority,
+        "target_node": target_node,
+        "assigned_node": None,
+        "status": "pending",  # pending, running, completed, failed
+        "created_at": datetime.now().isoformat(),
+        "started_at": None,
+        "completed_at": None,
+        "result": None,
+        "error": None,
+        "logs": []
+    }
+    
+    # Dodaj do kolejki zadań
+    CLUSTER_CONFIG["task_queue"].append(task)
+    # Sortuj według priorytetu
+    CLUSTER_CONFIG["task_queue"].sort(key=lambda x: (x["priority"], x["created_at"]))
+    
+    save_task_to_file(task)
+    save_cluster_config()
+    
+    return task_id
+
+
+def save_task_to_file(task):
+    """Zapisuje zadanie do pliku JSON w TASKS_DIR."""
+    task_path = os.path.join(TASKS_DIR, f"task_{task['id']}.json")
+    with open(task_path, 'w', encoding='utf-8') as f:
+        json.dump(task, f, indent=2, ensure_ascii=False)
+
+
+def get_all_tasks():
+    """Pobiera wszystkie zadania z TASKS_DIR."""
+    tasks = []
+    if not os.path.exists(TASKS_DIR):
+        return tasks
+    
+    for filename in os.listdir(TASKS_DIR):
+        if filename.startswith("task_") and filename.endswith(".json"):
+            filepath = os.path.join(TASKS_DIR, filename)
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    tasks.append(json.load(f))
+            except Exception:
+                continue
+    
+    return sorted(tasks, key=lambda x: (x.get("priority", 5), x.get("created_at", "")))
+
+
+def update_task_status(task_id, status, result=None, error=None):
+    """Aktualizuje status zadania."""
+    task_path = os.path.join(TASKS_DIR, f"task_{task_id}.json")
+    if not os.path.exists(task_path):
+        return False
+    
+    try:
+        with open(task_path, 'r+', encoding='utf-8') as f:
+            task = json.load(f)
+            task["status"] = status
+            if status == "running":
+                task["started_at"] = datetime.now().isoformat()
+            elif status in ["completed", "failed"]:
+                task["completed_at"] = datetime.now().isoformat()
+            if result:
+                task["result"] = result
+            if error:
+                task["error"] = error
+            
+            f.seek(0)
+            f.truncate()
+            json.dump(task, f, indent=2, ensure_ascii=False)
+        
+        # Aktualizuj też w pamięci
+        for i, t in enumerate(CLUSTER_CONFIG["task_queue"]):
+            if t["id"] == task_id:
+                CLUSTER_CONFIG["task_queue"][i] = task
+                break
+        
+        return True
+    except Exception:
+        return False
+
+
+def assign_task_to_node(task_id, node_id):
+    """Przypisuje zadanie do konkretnego node'a."""
+    task_path = os.path.join(TASKS_DIR, f"task_{task_id}.json")
+    if not os.path.exists(task_path):
+        return False
+    
+    try:
+        with open(task_path, 'r+', encoding='utf-8') as f:
+            task = json.load(f)
+            task["assigned_node"] = node_id
+            f.seek(0)
+            f.truncate()
+            json.dump(task, f, indent=2, ensure_ascii=False)
+        return True
+    except Exception:
+        return False
+
+
+def get_node_stats(node_id):
+    """Pobiera statystyki dla konkretnego node'a."""
+    tasks = get_all_tasks()
+    assigned = [t for t in tasks if t.get("assigned_node") == node_id]
+    
+    return {
+        "node_id": node_id,
+        "total_tasks": len(assigned),
+        "completed": len([t for t in assigned if t["status"] == "completed"]),
+        "failed": len([t for t in assigned if t["status"] == "failed"]),
+        "pending": len([t for t in assigned if t["status"] == "pending"]),
+        "running": len([t for t in assigned if t["status"] == "running"])
+    }
+
+
+def process_task_serial(task):
+    """
+    Przetwarza zadanie w trybie szeregowym na lokalnym node.
+    Inspiracja: Qwen-Agent sequential execution pattern.
+    """
+    task_id = task["id"]
+    task_type = task["type"]
+    data = task.get("data", {})
+    
+    update_task_status(task_id, "running")
+    
+    try:
+        if task_type == "convert":
+            # Konwersja plików
+            args = []
+            if data.get("verbose"):
+                args.append("-v")
+            result = run_script("convert_to_txt.sh", args if args else None)
+            
+        elif task_type == "chunk":
+            # Chunking
+            filename = data.get("filename", "")
+            chunk_size = str(data.get("chunk_size", 4096))
+            file_path = os.path.join(TMP_DIR, filename)
+            if not os.path.exists(file_path):
+                raise FileNotFoundError(f"Plik nie istnieje: {filename}")
+            args = ['-s', chunk_size, '-o', CHUNK_DIR, file_path]
+            result = run_script("chunk_script.sh", args)
+            
+        elif task_type == "rewrite":
+            # Przepisywanie AI
+            result = run_script("rewrite_chunks.sh")
+            
+        elif task_type == "assemble":
+            # Składanie książki
+            result = run_script("pipeline.sh", ["cli", "--assemble"])
+            
+        elif task_type == "upload":
+            # Upload do Moodle
+            result = run_script("upload_to_moodle.sh")
+            
+        else:
+            result = {"success": False, "error": f"Nieznany typ zadania: {task_type}"}
+        
+        if result.get("success"):
+            update_task_status(task_id, "completed", result=result)
+        else:
+            update_task_status(task_id, "failed", error=result.get("error", "Unknown error"))
+            
+    except Exception as e:
+        update_task_status(task_id, "failed", error=str(e))
+
+
+def execute_cluster_pipeline(mode="serial"):
+    """
+    Wykonuje pipeline na klastrze w wybranym trybie.
+    
+    Tryby:
+        - serial: Zadania przetwarzane jedno po drugim (RPi1 -> RPi4 -> RPi1...)
+        - parallel: Wszystkie node'y pracują równolegle
+        - hybrid: RPi4 przetwarzają równolegle, RPi1 szeregowo
+    """
+    tasks = [t for t in CLUSTER_CONFIG["task_queue"] if t["status"] == "pending"]
+    
+    if not tasks:
+        return {"success": False, "error": "Brak oczekujących zadań"}
+    
+    nodes = CLUSTER_CONFIG["nodes"]
+    results = []
+    
+    if mode == "serial":
+        # Tryb szeregowy - idealny dla heterogenicznego klastra
+        for task in tasks:
+            # Wybierz następny node w kolejności (round-robin)
+            node_idx = CLUSTER_CONFIG["current_node"] % len(nodes)
+            node = nodes[node_idx]
+            
+            assign_task_to_node(task["id"], node["id"])
+            process_task_serial(task)
+            
+            CLUSTER_CONFIG["current_node"] = node_idx + 1
+            results.append({"task_id": task["id"], "node": node["id"], "status": task["status"]})
+            
+    elif mode == "parallel":
+        # Tryb równoległy - wszystkie node'y pracują jednocześnie
+        with ThreadPoolExecutor(max_workers=len(nodes)) as executor:
+            future_to_task = {}
+            
+            for i, task in enumerate(tasks):
+                if i < len(nodes):
+                    node = nodes[i % len(nodes)]
+                    assign_task_to_node(task["id"], node["id"])
+                    future = executor.submit(process_task_serial, task)
+                    future_to_task[future] = task
+            
+            for future in as_completed(future_to_task):
+                task = future_to_task[future]
+                try:
+                    future.result()
+                    results.append({"task_id": task["id"], "status": "completed"})
+                except Exception as e:
+                    results.append({"task_id": task["id"], "status": "failed", "error": str(e)})
+    
+    save_cluster_config()
+    return {"success": True, "results": results}
 
 
 def get_file_size(filepath):
@@ -182,16 +492,31 @@ def load_config():
 
 def get_pipeline_status():
     """Zwraca aktualny status pipeline."""
+    # Załaduj konfigurację klastra
+    load_cluster_config()
+    
     return {
         "directories": {
             "input": {"count": count_files(INPUT_DIR), "exists": os.path.exists(INPUT_DIR)},
             "tmp": {"count": count_files(TMP_DIR), "exists": os.path.exists(TMP_DIR)},
             "chunk": {"count": count_files(CHUNK_DIR), "exists": os.path.exists(CHUNK_DIR)},
             "output": {"count": count_files(OUTPUT_DIR), "exists": os.path.exists(OUTPUT_DIR)},
-            "logs": {"count": count_files(LOGS_DIR), "exists": os.path.exists(LOGS_DIR)}
+            "logs": {"count": count_files(LOGS_DIR), "exists": os.path.exists(LOGS_DIR)},
+            "cluster": {"count": count_files(CLUSTER_DIR), "exists": os.path.exists(CLUSTER_DIR)},
+            "tasks": {"count": count_files(TASKS_DIR), "exists": os.path.exists(TASKS_DIR)}
         },
         "dependencies": check_dependencies(),
-        "config": load_config()
+        "config": load_config(),
+        "cluster": {
+            "enabled": CLUSTER_CONFIG["enabled"],
+            "nodes_count": len(CLUSTER_CONFIG["nodes"]),
+            "nodes": CLUSTER_CONFIG["nodes"],
+            "mode": CLUSTER_CONFIG["mode"],
+            "task_queue_length": len(CLUSTER_CONFIG["task_queue"]),
+            "active_tasks": len([t for t in CLUSTER_CONFIG["task_queue"] if t.get("status") == "running"]),
+            "completed_tasks": len([t for t in CLUSTER_CONFIG["task_queue"] if t.get("status") == "completed"]),
+            "failed_tasks": len([t for t in CLUSTER_CONFIG["task_queue"] if t.get("status") == "failed"])
+        }
     }
 
 
@@ -209,6 +534,7 @@ def generate_html_page(title, content, active_tab="dashboard"):
         "convert": "Konwersja",
         "chunking": "Chunking",
         "rewrite": "Przepisywanie",
+        "cluster": "Klaster",
         "logs": "Logi",
         "settings": "Ustawienia"
     }
@@ -616,6 +942,7 @@ def generate_dashboard_content():
     
     dirs = status["directories"]
     deps = status["dependencies"]
+    cluster = status.get("cluster", {})
     
     stats_html = f'''
     <div class="grid">
@@ -634,6 +961,14 @@ def generate_dashboard_content():
         <div class="stat-card">
             <h3>{dirs['output']['count']}</h3>
             <p>Wyniki</p>
+        </div>
+        <div class="stat-card" style="background: linear-gradient(135deg, #667eea, #764ba2);">
+            <h3>{cluster.get('nodes_count', 0)}</h3>
+            <p>Node'y klastra</p>
+        </div>
+        <div class="stat-card" style="background: linear-gradient(135deg, #f093fb, #f5576c);">
+            <h3>{cluster.get('task_queue_length', 0)}</h3>
+            <p>Zadania w kolejce</p>
         </div>
     </div>
     '''
@@ -657,6 +992,7 @@ def generate_dashboard_content():
         <a href="/?tab=convert" class="btn">🔄 Konwertuj pliki</a>
         <a href="/?tab=chunking" class="btn">📝 Podziel na chunki</a>
         <a href="/?tab=rewrite" class="btn">✍️ Przepisz chunki</a>
+        <a href="/?tab=cluster" class="btn">🖥️ Zarządzaj klastrem</a>
         <a href="/?tab=files" class="btn">📁 Przeglądaj pliki</a>
     </div>
     '''
@@ -952,6 +1288,7 @@ def generate_settings_content():
     """Generuje zawartość strony ustawień."""
     config = load_config()
     deps = check_dependencies()
+    load_cluster_config()
     
     config_vars = ""
     common_vars = [
@@ -976,9 +1313,38 @@ def generate_settings_content():
         </div>
         '''
     
+    # Konfiguracja klastra
+    cluster_config_html = ""
+    if CLUSTER_CONFIG["enabled"]:
+        nodes_html = ""
+        for node in CLUSTER_CONFIG["nodes"]:
+            nodes_html += f'''
+            <tr>
+                <td>{html.escape(node['id'])}</td>
+                <td>{html.escape(node['type'])}</td>
+                <td>{html.escape(node['host'])}:{node['port']}</td>
+                <td>{node['cores']} cores</td>
+                <td>{html.escape(node['ram'])}</td>
+            </tr>
+            '''
+        
+        cluster_config_html = f'''
+        <div class="card">
+            <h3>🖥️ Konfiguracja Klastra Raspberry Pi</h3>
+            <p>Tryb pracy: <strong>{CLUSTER_CONFIG['mode']}</strong></p>
+            <table>
+                <tr><th>ID Node'a</th><th>Typ</th><th>Adres</th><th>Rdzenie</th><th>RAM</th></tr>
+                {nodes_html}
+            </table>
+            <form data-ajax data-action="/api/cluster/init" method="POST" style="margin-top: 15px;">
+                <button type="submit" class="btn btn-warning">🔄 Zresetuj konfigurację klastra</button>
+            </form>
+        </div>
+        '''
+    
     content = f'''
     <div class="card">
-        <h2>⚙️ Konfiguracja</h2>
+        <h2>⚙️ Konfiguracja API</h2>
         
         <div class="alert alert-info">
             Edytuj plik <code>config.sh</code> aby skonfigurować parametry API i inne ustawienia.
@@ -990,6 +1356,8 @@ def generate_settings_content():
             <button type="submit" class="btn btn-success">💾 Zapisz konfigurację</button>
         </form>
     </div>
+    
+    {cluster_config_html}
     
     <div class="card">
         <h2>🔍 Sprawdzenie zależności</h2>
@@ -1008,7 +1376,126 @@ def generate_settings_content():
             <tr><td>Chunk</td><td><code>{html.escape(CHUNK_DIR)}</code></td><td>{count_files(CHUNK_DIR)}</td></tr>
             <tr><td>Output</td><td><code>{html.escape(OUTPUT_DIR)}</code></td><td>{count_files(OUTPUT_DIR)}</td></tr>
             <tr><td>Logs</td><td><code>{html.escape(LOGS_DIR)}</code></td><td>{count_files(LOGS_DIR)}</td></tr>
+            <tr><td>Cluster</td><td><code>{html.escape(CLUSTER_DIR)}</code></td><td>{count_files(CLUSTER_DIR)}</td></tr>
+            <tr><td>Tasks</td><td><code>{html.escape(TASKS_DIR)}</code></td><td>{count_files(TASKS_DIR)}</td></tr>
         </table>
+    </div>
+    '''
+    
+    return content
+
+
+def generate_cluster_content():
+    """Generuje zawartość strony zarządzania klastrem."""
+    load_cluster_config()
+    tasks = get_all_tasks()
+    
+    # Statystyki node'ów
+    nodes_stats_html = ""
+    for node in CLUSTER_CONFIG["nodes"]:
+        stats = get_node_stats(node["id"])
+        status_class = "status-success" if stats["running"] == 0 else "status-warning"
+        
+        nodes_stats_html += f'''
+        <div class="card" style="border-left: 4px solid {'#4a90d9' if node['type'] == 'rpi4' else '#f5576c'};">
+            <h3>{html.escape(node['id'])} - {html.escape(node['type'].upper())}</h3>
+            <p><strong>Adres:</strong> {html.escape(node['host'])}:{node['port']}</p>
+            <p><strong>Rdzenie:</strong> {node['cores']} | <strong>RAM:</strong> {html.escape(node['ram'])}</p>
+            <div class="grid" style="margin-top: 15px;">
+                <div class="stat-card" style="padding: 10px; font-size: 0.9em;">
+                    <h4 style="font-size: 1.5em;">{stats['completed']}</h4>
+                    <p>Zakończone</p>
+                </div>
+                <div class="stat-card" style="padding: 10px; font-size: 0.9em; background: #ffc107;">
+                    <h4 style="font-size: 1.5em;">{stats['running']}</h4>
+                    <p>Uruchomione</p>
+                </div>
+                <div class="stat-card" style="padding: 10px; font-size: 0.9em; background: #dc3545;">
+                    <h4 style="font-size: 1.5em;">{stats['failed']}</h4>
+                    <p>Błędne</p>
+                </div>
+            </div>
+        </div>
+        '''
+    
+    # Lista zadań
+    tasks_html = "<h3>Wszystkie zadania</h3><table><tr><th>ID</th><th>Typ</th><th>Priorytet</th><th>Status</th><th>Node</th><th>Utworzono</th></tr>"
+    for task in tasks[:50]:  # Limit 50 najnowszych
+        status_class = {
+            "pending": "status-warning",
+            "running": "status-success",
+            "completed": "status-success",
+            "failed": "status-error"
+        }.get(task.get("status", "pending"), "status-warning")
+        
+        tasks_html += f'''
+        <tr>
+            <td><code>{html.escape(task['id'])}</code></td>
+            <td>{html.escape(task['type'])}</td>
+            <td>{task.get('priority', 5)}</td>
+            <td><span class="status-badge {status_class}">{html.escape(task.get('status', 'unknown'))}</span></td>
+            <td>{html.escape(task.get('assigned_node', '-')) or '-'}</td>
+            <td>{html.escape(task.get('created_at', '-')[:19])}</td>
+        </tr>
+        '''
+    tasks_html += "</table>"
+    
+    content = f'''
+    <div class="card">
+        <h2>🖥️ Klaster Raspberry Pi (3x RPi4 + 3x RPi1)</h2>
+        <div class="alert alert-info">
+            <strong>Tryb szeregowy:</strong> Zadania przetwarzane są jedno po drugim, przechodząc przez wszystkie node'y w kolejności round-robin.
+            Idealne dla heterogenicznego sprzętu gdzie RPi1 mogą obsługiwać lżejsze zadania.
+        </div>
+        <div class="alert alert-success">
+            <strong>Inspiracja Qwen-Agent:</strong> System wykorzystuje wzorce sekwencyjnego wykonania z frameworka Qwen-Agent,
+            zapewniając niezawodne przetwarzanie nawet na słabszym sprzęcie.
+        </div>
+    </div>
+    
+    <div class="card">
+        <h3>📊 Status Node'ów</h3>
+        <div class="grid">
+            {nodes_stats_html}
+        </div>
+    </div>
+    
+    <div class="card">
+        <h3>📋 Kolejka Zadań</h3>
+        <form data-ajax data-action="/api/cluster/create-task" method="POST" style="margin-bottom: 20px;">
+            <div class="grid">
+                <div class="form-group">
+                    <label>Typ zadania</label>
+                    <select name="task_type" class="form-control">
+                        <option value="convert">Konwersja plików</option>
+                        <option value="chunk">Chunking</option>
+                        <option value="rewrite">Przepisywanie AI</option>
+                        <option value="assemble">Składanie książki</option>
+                        <option value="upload">Upload do Moodle</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Priorytet (1-10)</label>
+                    <input type="number" name="priority" class="form-control" min="1" max="10" value="5">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-success">➕ Dodaj zadanie</button>
+        </form>
+        {tasks_html}
+    </div>
+    
+    <div class="card">
+        <h3>▶️ Uruchom Pipeline</h3>
+        <form data-ajax data-action="/api/cluster/execute" method="POST">
+            <div class="form-group">
+                <label>Tryb wykonania</label>
+                <select name="mode" class="form-control">
+                    <option value="serial">Serial (szeregowy) - zalecany</option>
+                    <option value="parallel">Parallel (równoległy)</option>
+                </select>
+            </div>
+            <button type="submit" class="btn btn-success">▶️ Uruchom przetwarzanie</button>
+        </form>
     </div>
     '''
     
@@ -1054,6 +1541,12 @@ class WebUIHandler(SimpleHTTPRequestHandler):
             self.handle_config(post_data)
         elif path == "/api/full-pipeline":
             self.handle_full_pipeline(post_data)
+        elif path == "/api/cluster/init":
+            self.handle_cluster_init(post_data)
+        elif path == "/api/cluster/create-task":
+            self.handle_cluster_create_task(post_data)
+        elif path == "/api/cluster/execute":
+            self.handle_cluster_execute(post_data)
         else:
             self.send_error(404, "Not Found")
     
@@ -1074,6 +1567,7 @@ class WebUIHandler(SimpleHTTPRequestHandler):
             'convert': generate_convert_content,
             'chunking': generate_chunking_content,
             'rewrite': generate_rewrite_content,
+            'cluster': generate_cluster_content,
             'logs': generate_logs_content,
             'settings': generate_settings_content
         }
@@ -1202,6 +1696,56 @@ class WebUIHandler(SimpleHTTPRequestHandler):
             "message": "Pipeline zakończony" if result.get("success") else "Błąd pipeline",
             "output": result.get("stdout", "")[:1000] if result.get("stdout") else ""
         })
+    
+    def handle_cluster_init(self, post_data):
+        """Inicjalizuje konfigurację klastra."""
+        try:
+            init_cluster_config()
+            self.send_json_response({
+                "success": True,
+                "message": "Konfiguracja klastra zainicjalizowana (6 node'ów: 3x RPi4 + 3x RPi1)"
+            })
+        except Exception as e:
+            self.send_json_response({"success": False, "error": str(e)})
+    
+    def handle_cluster_create_task(self, post_data):
+        """Tworzy nowe zadanie w kolejce klastra."""
+        params = parse_qs(post_data)
+        
+        task_type = params.get('task_type', ['convert'])[0]
+        priority = int(params.get('priority', [5])[0])
+        
+        # Dane zadania zależne od typu
+        data = {
+            "verbose": True,
+            "filename": params.get('filename', [''])[0],
+            "chunk_size": int(params.get('chunk_size', [4096])[0])
+        }
+        
+        try:
+            task_id = create_task(task_type, data, priority=priority)
+            self.send_json_response({
+                "success": True,
+                "message": f"Zadanie utworzone: {task_id}",
+                "task_id": task_id
+            })
+        except Exception as e:
+            self.send_json_response({"success": False, "error": str(e)})
+    
+    def handle_cluster_execute(self, post_data):
+        """Wykonuje pipeline na klastrze."""
+        params = parse_qs(post_data)
+        mode = params.get('mode', ['serial'])[0]
+        
+        try:
+            # Upewnij się że klaster jest zainicjalizowany
+            if not CLUSTER_CONFIG["nodes"]:
+                init_cluster_config()
+            
+            result = execute_cluster_pipeline(mode=mode)
+            self.send_json_response(result)
+        except Exception as e:
+            self.send_json_response({"success": False, "error": str(e)})
     
     def log_message(self, format, *args):
         """Tłumienie logów serwera HTTP."""

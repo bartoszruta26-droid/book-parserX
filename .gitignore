@@ -1,1 +1,1 @@
-Nothing needs to be added to the .gitignore file since the changes only include shell scripts (.sh) and a markdown file (.md), which are source files that should be tracked in version control. There are no build artifacts, dependencies, or temporary files in the provided list of changes.
+Nothing should be ignored based on the provided file changes, as only a source file (`webui.py`) was modified and no build artifacts, dependencies, or temporary files were included in the changes.
