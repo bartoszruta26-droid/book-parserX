@@ -27,6 +27,7 @@ INSTALL_MODELS=false
 CONFIGURE_API=false
 SKIP_DEPENDENCIES=false
 VERBOSE=false
+INSTALL_MOODLE_SUPPORT=false
 
 # ============================================================================
 # FUNKCJE POMOCNICZE
@@ -77,12 +78,14 @@ OPCJE:
     -c, --configure       Interaktywna konfiguracja API
     -s, --skip-deps       Pominięcie instalacji zależności systemowych
     -v, --verbose         Tryb szczegółowy
+    -d, --moodle          Instalacja wsparcia dla Moodle upload
     -h, --help            Wyświetl tę pomoc i zakończ
 
 PRZYKŁADY:
     $(basename "$0")                     # Standardowa instalacja
     $(basename "$0") -m                  # Instalacja z modelami AI
     $(basename "$0") -c                  # Tylko konfiguracja API
+    $(basename "$0") -d                  # Instalacja ze wsparciem Moodle
     $(basename "$0") -m -c -v            # Pełna instalacja z konfiguracją
 
 EOF
@@ -109,6 +112,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -v|--verbose)
             VERBOSE=true
+            shift
+            ;;
+        -d|--moodle)
+            INSTALL_MOODLE_SUPPORT=true
             shift
             ;;
         -h|--help)
@@ -467,6 +474,22 @@ CHECK_UPDATES=true
 # HTTPS_PROXY="http://proxy.example.com:8080"
 # NO_PROXY="localhost,127.0.0.1"
 
+# ============================================================================
+# KONFIGURACJA MOODLE
+# ============================================================================
+
+# URL do Twojej instancji Moodle
+MOODLE_URL="https://twoje-moodle.pl"
+
+# Token Web Services Moodle (wygeneruj w: Administracja > Pluginy > Web services > Zarządzaj tokenami)
+MOODLE_TOKEN="your-moodle-token-here"
+
+# ID kursu, do którego mają być wysyłane pliki
+MOODLE_COURSE_ID=""
+
+# Opcjonalnie: ID sekcji kursu (jeśli chcesz dodawać pliki bezpośrednio do sekcji)
+MOODLE_SECTION_ID=""
+
 EOF
     
     print_success "Utworzono szablon konfiguracji: $CONFIG_EXAMPLE"
@@ -521,6 +544,29 @@ interactive_configure() {
         if [[ -n "$temperature" ]]; then
             sed -i "s/TEMPERATURE=.*/TEMPERATURE=$temperature/" "$CONFIG_FILE"
         fi
+    fi
+    
+    # Konfiguracja Moodle
+    echo ""
+    read -p "Czy chcesz skonfigurować integrację z Moodle? (t/n): " moodle_config
+    
+    if [[ "$moodle_config" == "t" ]] || [[ "$moodle_config" == "T" ]]; then
+        read -p "URL do Twojego Moodle (np. https://moodle.twojadomena.pl): " moodle_url
+        if [[ -n "$moodle_url" ]]; then
+            sed -i "s|MOODLE_URL=\"https://twoje-moodle.pl\"|MOODLE_URL=\"$moodle_url\"|" "$CONFIG_FILE"
+        fi
+        
+        read -p "Token Web Services Moodle (ENTER aby pominąć): " moodle_token
+        if [[ -n "$moodle_token" ]]; then
+            sed -i "s/MOODLE_TOKEN=\"your-moodle-token-here\"/MOODLE_TOKEN=\"$moodle_token\"/" "$CONFIG_FILE"
+        fi
+        
+        read -p "ID kursu Moodle (opcjonalne): " moodle_course_id
+        if [[ -n "$moodle_course_id" ]]; then
+            sed -i "s/MOODLE_COURSE_ID=\"\"/MOODLE_COURSE_ID=\"$moodle_course_id\"/" "$CONFIG_FILE"
+        fi
+        
+        print_success "Skonfigurowano integrację z Moodle"
     fi
     
     echo ""
@@ -696,6 +742,59 @@ install_models() {
     esac
 }
 
+install_moodle_support() {
+    print_step "Instalacja wsparcia dla Moodle"
+    
+    log "Sprawdzanie zależności dla Moodle upload..."
+    
+    # Sprawdzenie curl i base64
+    local missing_tools=()
+    
+    if ! command -v curl &>/dev/null; then
+        missing_tools+=("curl")
+    fi
+    
+    if ! command -v base64 &>/dev/null; then
+        missing_tools+=("base64")
+    fi
+    
+    if [[ ${#missing_tools[@]} -gt 0 ]]; then
+        print_warning "Brakujące narzędzia: ${missing_tools[*]}"
+        log "Instalowanie brakujących narzędzi..."
+        
+        case $OS_ID in
+            ubuntu|debian|linuxmint)
+                sudo apt-get install -y -qq "${missing_tools[@]}" 2>/dev/null || true
+                ;;
+            rhel|centos|fedora|rocky|almalinux)
+                sudo dnf install -y -q "${missing_tools[@]}" 2>/dev/null || sudo yum install -y -q "${missing_tools[@]}" 2>/dev/null || true
+                ;;
+            *)
+                print_warning "Zainstaluj ręcznie: ${missing_tools[*]}"
+                ;;
+        esac
+    fi
+    
+    # Utwórz skrypt upload_to_moodle.sh jeśli nie istnieje
+    if [[ ! -f "$SCRIPT_DIR/upload_to_moodle.sh" ]]; then
+        log "Tworzenie skryptu upload_to_moodle.sh..."
+        
+        cat > "$SCRIPT_DIR/upload_to_moodle.sh" << 'MOODLE_SCRIPT'
+#!/bin/bash
+# Skrypt do wysyłki plików do Moodle - wygenerowany przez install.sh
+# Uruchom ./full_workflow.sh aby uzyskać pełną wersję
+echo "Skonfiguruj najpierw Moodle w config.sh"
+echo "Następnie uruchom: ./full_workflow.sh"
+exit 0
+MOODLE_SCRIPT
+        
+        chmod +x "$SCRIPT_DIR/upload_to_moodle.sh"
+    fi
+    
+    print_success "Wsparcie dla Moodle skonfigurowane"
+    log "Pamiętaj o konfiguracji MOODLE_URL, MOODLE_TOKEN i MOODLE_COURSE_ID w config.sh"
+}
+
 make_scripts_executable() {
     print_step "Ustawianie uprawnień wykonywalności dla skryptów"
     
@@ -725,7 +824,7 @@ verify_installation() {
     done
     
     # Sprawdzenie katalogów
-    for dir in input tmp chunk output logs; do
+    for dir in input tmp chunk output logs finish; do
         if [[ -d "$SCRIPT_DIR/$dir" ]]; then
             log "  ✓ katalog $dir"
         else
@@ -743,7 +842,7 @@ verify_installation() {
     fi
     
     # Sprawdzenie skryptów
-    for script in pipeline.sh convert_to_txt.sh chunk_script.sh rewrite_chunks.sh; do
+    for script in pipeline.sh convert_to_txt.sh chunk_script.sh rewrite_chunks.sh full_workflow.sh; do
         if [[ -x "$SCRIPT_DIR/$script" ]]; then
             log "  ✓ skrypt $script"
         else
@@ -807,6 +906,11 @@ main() {
     setup_python_environment
     create_directories
     setup_config_file
+    
+    # Instalacja wsparcia dla Moodle jeśli wymagana
+    if [[ "$INSTALL_MOODLE_SUPPORT" == true ]]; then
+        install_moodle_support
+    fi
     
     if [[ "$INSTALL_MODELS" == true ]]; then
         install_models
