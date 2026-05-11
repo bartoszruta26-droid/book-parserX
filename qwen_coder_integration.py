@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Qwen Coder AI Integration Module - Rozszerzona wersja dla klastra Raspberry Pi
+Qwen Coder AI Integration Module - Wersja dla klastra Raspberry Pi z pełną integracją Moodle
 Integracja z wieloma platformami AI: coder.qwen.ai, chatgpt.com, grok.com
 
 Funkcje:
@@ -10,9 +10,10 @@ Funkcje:
     - Odbieranie i parsowanie odpowiedzi
     - Obsługa sesji przeglądarkowej przez Selenium/Playwright
     - Integracja z klastrem Raspberry Pi (3x RPi4 + 3x RPi1)
-    - RPi4: wykorzystują lokalne LLM
-    - RPi1: wykorzystują webowe AI (coder.qwen.ai, chatgpt.com, grok.com)
-    - Agregacja wyników z różnych AI w nodzie master
+    - WSZYSTKIE RPi (4 i 1) korzystają z webowych AI
+    - Master RPi zbiera odpowiedzi ze wszystkich node'ów
+    - Master wysyła zebrane odpowiedzi do LLM Qwen w celu połączenia
+    - Połączony tekst jest wysyłany do Moodle course activity
     
 Autor: bartosz.ruta26@gmail.com
 Licencja: MIT
@@ -48,33 +49,36 @@ RESULTS_DIR = SCRIPT_DIR / "results"
 
 class NodeType(Enum):
     """Typy node'ów w klastrze"""
-    RPI4 = "rpi4"  # Wykorzystuje lokalne LLM
+    RPI4 = "rpi4"  # Wykorzystuje webowe AI (jak RPi1)
     RPI1 = "rpi1"  # Wykorzystuje webowe AI
 
 
 class AIPlatform(Enum):
-    """Dostępne platformy AI"""
+    """Dostępne platformy AI - wszystkie webowe"""
     QWEN_CODER = "coder.qwen.ai"
     CHATGPT = "chatgpt.com"
     GROK = "grok.com"
-    LOCAL_LLM = "local_llm"  # Dla RPi4
+    QWEN_LLM = "llm.qwen.ai"  # Dodatkowa platforma Qwen dla mastera
 
 
-# Domyślne ustawienia klastra
+# Domyślne ustawienia klastra - WSZYSTKIE node'y używają webowych AI
 CLUSTER_CONFIG = {
     "nodes": [
+        # Master node - RPi4 z Qwen LLM do łączenia tekstów
         {"id": "rpi4-1", "type": "rpi4", "host": "192.168.1.101", "port": 8080, "cores": 4, 
-         "ai_platform": "local_llm", "llm_model": "llama-2-7b"},
+         "ai_platform": "llm.qwen.ai", "credentials_profile": "qwen_master_profile", "role": "master"},
+        # Worker nodes - RPi4 z różnymi platformami AI
         {"id": "rpi4-2", "type": "rpi4", "host": "192.168.1.102", "port": 8080, "cores": 4,
-         "ai_platform": "local_llm", "llm_model": "llama-2-7b"},
+         "ai_platform": "coder.qwen.ai", "credentials_profile": "qwen_profile_1", "role": "worker"},
         {"id": "rpi4-3", "type": "rpi4", "host": "192.168.1.103", "port": 8080, "cores": 4,
-         "ai_platform": "local_llm", "llm_model": "llama-2-7b"},
+         "ai_platform": "chatgpt.com", "credentials_profile": "chatgpt_profile_1", "role": "worker"},
+        # Worker nodes - RPi1 z różnymi platformami AI
         {"id": "rpi1-1", "type": "rpi1", "host": "192.168.1.104", "port": 8080, "cores": 1,
-         "ai_platform": "coder.qwen.ai", "credentials_profile": "qwen_profile_1"},
+         "ai_platform": "coder.qwen.ai", "credentials_profile": "qwen_profile_2", "role": "worker"},
         {"id": "rpi1-2", "type": "rpi1", "host": "192.168.1.105", "port": 8080, "cores": 1,
-         "ai_platform": "chatgpt.com", "credentials_profile": "chatgpt_profile_1"},
+         "ai_platform": "chatgpt.com", "credentials_profile": "chatgpt_profile_2", "role": "worker"},
         {"id": "rpi1-3", "type": "rpi1", "host": "192.168.1.106", "port": 8080, "cores": 1,
-         "ai_platform": "grok.com", "credentials_profile": "grok_profile_1"},
+         "ai_platform": "grok.com", "credentials_profile": "grok_profile_1", "role": "worker"},
     ],
     "mode": "serial",  # serial, parallel, hybrid
     "current_node": 0,
@@ -165,6 +169,11 @@ class QwenCoderIntegration:
             },
             # Profile logowania dla różnych node'ów - każdy może mieć inne dane
             "credentials_profiles": {
+                "qwen_master_profile": {
+                    "platform": "llm.qwen.ai",
+                    "email": "bartosz.ruta26@gmail.com",
+                    "password": ""
+                },
                 "qwen_profile_1": {
                     "platform": "coder.qwen.ai",
                     "email": "user1@example.com",
@@ -196,12 +205,11 @@ class QwenCoderIntegration:
                     "password": ""
                 }
             },
-            "local_llm": {
+            "qwen_llm": {
                 "enabled": True,
-                "model": "llama-2-7b",
-                "port": 5000,
-                "host": "localhost",
-                "api_endpoint": "http://localhost:5000/v1/chat/completions"
+                "base_url": "https://llm.qwen.ai",
+                "login_url": "https://llm.qwen.ai/login",
+                "api_endpoint": "https://llm.qwen.ai/api/v1/chat/completions"
             },
             "cluster": CLUSTER_CONFIG,
             "browser": {
@@ -737,7 +745,8 @@ class MultiAIIntegration:
         urls = {
             "coder.qwen.ai": "https://coder.qwen.ai/login",
             "chatgpt.com": "https://chatgpt.com/auth/login",
-            "grok.com": "https://grok.com/login"
+            "grok.com": "https://grok.com/login",
+            "llm.qwen.ai": "https://llm.qwen.ai/login"
         }
         return urls.get(platform, "")
     
@@ -799,11 +808,7 @@ class MultiAIIntegration:
         
         ai_platform = node.get("ai_platform", "coder.qwen.ai")
         
-        # RPi4 używa lokalnego LLM
-        if ai_platform == "local_llm":
-            return self._query_local_llm(node_id, query, node)
-        
-        # RPi1 używa webowych AI
+        # Wszystkie node'y używają webowych AI - brak lokalnego LLM
         if node_id not in self.sessions:
             logger.error(f"Node {node_id} nie jest zalogowany")
             return None
@@ -813,7 +818,7 @@ class MultiAIIntegration:
     
     def _query_local_llm(self, node_id: str, query: str, node_config: Dict) -> Optional[str]:
         """
-        Wysyła zapytanie do lokalnego LLM na RPi4
+        Wysyła zapytanie do Qwen LLM przez stronę webową (dla mastera)
         
         Args:
             node_id: ID node'a
@@ -823,32 +828,160 @@ class MultiAIIntegration:
         Returns:
             Odpowiedź z LLM lub None
         """
+        # Ta metoda jest przestarzała - wszystkie node'y używają webowych AI
+        logger.warning(f"_query_local_llm jest przestarzała - użyj send_query_to_node")
+        return self.send_query_to_node(node_id, query)
+    
+    def merge_texts_with_qwen(self, collected_texts: List[str], chunk_metadata: Dict = None) -> Optional[str]:
+        """
+        Wysyła zebrane teksty do Qwen LLM w celu połączenia w jeden spójny tekst
+        
+        Args:
+            collected_texts: Lista tekstów zebranych z różnych AI
+            chunk_metadata: Metadane o chunkach (opcjonalnie)
+            
+        Returns:
+            Połączony tekst lub None
+        """
+        master_node = self.config.get("cluster", {}).get("master_node", "rpi4-1")
+        
+        # Przygotuj prompt do łączenia tekstów
+        merge_prompt = f"""Jesteś asystentem do łączenia tekstów. Masz za zadanie połączyć poniższe fragmenty tekstu 
+w jeden spójny, logiczny dokument. Każdy fragment pochodzi z innego źródła AI.
+
+INSTRUKCJE:
+1. Połącz wszystkie fragmenty w logiczną całość
+2. Usuń powtórzenia i sprzeczności
+3. Zachowaj styl akademicki/edukacyjny
+4. Dodaj płynne przejścia między sekcjami
+5. Upewnij się, że tekst jest spójny tematycznie
+
+FRAGMENTY DO POŁĄCZENIA:
+"""
+        
+        for i, text in enumerate(collected_texts):
+            if text:
+                merge_prompt += f"\n\n--- Fragment {i+1} ---\n{text}\n"
+        
+        if chunk_metadata:
+            merge_prompt += f"\n\nMETADANE CHUNKÓW:\n{json.dumps(chunk_metadata, indent=2)}\n"
+        
+        merge_prompt += "\n\nPOŁĄCZONY TEKST:"
+        
+        logger.info(f"Wysyłanie {len(collected_texts)} fragmentów do Qwen LLM w celu połączenia...")
+        
+        # Wyślij zapytanie do master node
+        merged_text = self.send_query_to_node(master_node, merge_prompt)
+        
+        if merged_text:
+            logger.info(f"Otrzymano połączony tekst ({len(merged_text)} znaków)")
+        else:
+            logger.error("Nie otrzymano połączonego tekstu z Qwen LLM")
+        
+        return merged_text
+    
+    def upload_to_moodle(self, text: str, filename: Optional[str] = None) -> bool:
+        """
+        Wysyła połączony tekst do Moodle course activity
+        
+        Args:
+            text: Tekst do wysłania
+            filename: Nazwa pliku (opcjonalnie)
+            
+        Returns:
+            True jeśli wysyłka powiodła się
+        """
         try:
             import requests
             
-            llm_config = self.config.get("local_llm", {})
-            host = node_config.get("host", "localhost")
-            port = llm_config.get("port", 5000)
-            endpoint = llm_config.get("api_endpoint", f"http://{host}:{port}/v1/chat/completions")
+            moodle_config = self.config.get("moodle", {})
+            moodle_url = moodle_config.get("url", "")
+            moodle_token = moodle_config.get("token", "")
+            course_id = moodle_config.get("course_id", "")
             
-            payload = {
-                "model": llm_config.get("model", "llama-2-7b"),
-                "messages": [
-                    {"role": "user", "content": query}
-                ],
-                "max_tokens": 1024,
-                "temperature": 0.7
-            }
+            if not moodle_url or not moodle_token:
+                logger.error("Brak konfiguracji Moodle w config.json")
+                return False
             
-            response = requests.post(endpoint, json=payload, timeout=60)
-            response.raise_for_status()
+            # Zapisz tekst do tymczasowego pliku
+            if not filename:
+                filename = f"merged_text_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            
+            temp_file = RESULTS_DIR / filename
+            with open(temp_file, 'w', encoding='utf-8') as f:
+                f.write(text)
+            
+            logger.info(f"Wysyłanie pliku {filename} do Moodle...")
+            
+            # Encode pliku do base64
+            import base64
+            with open(temp_file, 'rb') as f:
+                file_content = f.read()
+            file_base64 = base64.b64encode(file_content).decode('utf-8')
+            
+            # API call do Moodle
+            response = requests.post(
+                f"{moodle_url}/webservice/rest/server.php",
+                data={
+                    "wstoken": moodle_token,
+                    "wsfunction": "core_user_upload_private_file",
+                    "moodlewsrestformat": "json",
+                    "itemid": 0,
+                    "filename": filename,
+                    "filepath": "/",
+                    "filecontent": file_base64
+                },
+                timeout=60
+            )
             
             result = response.json()
-            return result.get("choices", [{}])[0].get("message", {}).get("content", "")
             
+            if "exception" in result:
+                logger.error(f"Błąd Moodle: {result.get('message', 'Nieznany błąd')}")
+                return False
+            
+            file_id = result.get("id")
+            if file_id:
+                logger.info(f"Plik wysłany pomyślnie do Moodle (ID: {file_id})")
+                
+                # Opcjonalnie: dodaj plik do kursu
+                if course_id:
+                    self._add_file_to_course(moodle_url, moodle_token, course_id, file_id, filename)
+                
+                return True
+            else:
+                logger.error("Nie otrzymano ID pliku z Moodle")
+                return False
+                
         except Exception as e:
-            logger.error(f"Błąd komunikacji z lokalnym LLM ({node_id}): {e}")
-            return None
+            logger.error(f"Błąd podczas wysyłki do Moodle: {e}")
+            return False
+    
+    def _add_file_to_course(self, moodle_url: str, token: str, course_id: str, file_id: int, filename: str):
+        """Dodaje plik do sekcji kursu Moodle"""
+        try:
+            section_id = self.config.get("moodle", {}).get("section_id", "")
+            if not section_id:
+                return
+            
+            requests.post(
+                f"{moodle_url}/webservice/rest/server.php",
+                data={
+                    "wstoken": token,
+                    "wsfunction": "core_course_add_contents_item",
+                    "moodlewsrestformat": "json",
+                    "courseid": course_id,
+                    "section": section_id,
+                    "module": "file",
+                    "name": filename,
+                    "contents[0][type]": "file",
+                    "contents[0][file]": file_id
+                },
+                timeout=30
+            )
+            logger.info(f"Plik dodany do sekcji {section_id} kursu {course_id}")
+        except Exception as e:
+            logger.warning(f"Nie udało się dodać pliku do sekcji kursu: {e}")
     
     def process_cluster_sequential(self, queries: List[str]) -> List[Dict]:
         """
@@ -919,6 +1052,108 @@ class MultiAIIntegration:
             all_results.extend(query_results)
         
         return all_results
+    
+    def aggregate_and_merge_results(self, results: List[Dict], chunk_metadata: Dict = None) -> Optional[str]:
+        """
+        Agreguje wyniki z różnych AI i wysyła do Qwen LLM w celu połączenia
+        
+        Args:
+            results: Lista wyników z wszystkich node'ów
+            chunk_metadata: Metadane o chunkach (opcjonalnie)
+            
+        Returns:
+            Połączony tekst lub None
+        """
+        # Najpierw zagreguj wyniki
+        aggregated = self.aggregate_results(results)
+        
+        # Zebranie wszystkich odpowiedzi tekstowych
+        collected_texts = []
+        for query_data in aggregated.get("queries", []):
+            for platform, response_data in query_data.get("ai_responses", {}).items():
+                if response_data.get("response"):
+                    collected_texts.append(response_data["response"])
+        
+        if not collected_texts:
+            logger.error("Brak tekstów do połączenia")
+            return None
+        
+        logger.info(f"Zebrano {len(collected_texts)} fragmentów do połączenia")
+        
+        # Wyślij do Qwen LLM w celu połączenia
+        merged_text = self.merge_texts_with_qwen(collected_texts, chunk_metadata)
+        
+        return merged_text
+    
+    def process_full_pipeline(self, queries: List[str], chunk_metadata: Dict = None, upload_to_moodle_flag: bool = True) -> bool:
+        """
+        Pełny pipeline przetwarzania:
+        1. Przetwarzanie szeregowe na wszystkich node'ach
+        2. Agregacja wyników
+        3. Łączenie tekstów przez Qwen LLM
+        4. Wysyłka do Moodle
+        
+        Args:
+            queries: Lista zapytań/chunków do przetworzenia
+            chunk_metadata: Metadane o chunkach
+            upload_to_moodle_flag: Czy wysłać wynik do Moodle
+            
+        Returns:
+            True jeśli cały proces powiódł się
+        """
+        logger.info("=" * 80)
+        logger.info("🚀 PEŁNY PIPELINE PRZETWARZANIA KLASTRA")
+        logger.info("=" * 80)
+        
+        try:
+            # Krok 1: Przetwarzanie szeregowe na wszystkich node'ach
+            logger.info("\n[KROK 1/4] Przetwarzanie zapytań na wszystkich node'ach...")
+            results = self.process_cluster_sequential(queries)
+            
+            # Sprawdź czy były sukcesy
+            success_count = sum(1 for r in results if r.get("success"))
+            if success_count == 0:
+                logger.error("Żaden node nie zwrócił poprawnej odpowiedzi")
+                return False
+            
+            logger.info(f"[KROK 1/4] ✓ Otrzymano {success_count} odpowiedzi")
+            
+            # Krok 2: Agregacja i łączenie tekstów
+            logger.info("\n[KROK 2/4] Agregacja i łączenie tekstów przez Qwen LLM...")
+            merged_text = self.aggregate_and_merge_results(results, chunk_metadata)
+            
+            if not merged_text:
+                logger.error("Nie udało się połączyć tekstów")
+                return False
+            
+            logger.info(f"[KROK 2/4] ✓ Połączony tekst ({len(merged_text)} znaków)")
+            
+            # Krok 3: Zapisz połączony tekst
+            logger.info("\n[KROK 3/4] Zapisywanie połączonego tekstu...")
+            output_file = RESULTS_DIR / f"merged_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(merged_text)
+            logger.info(f"[KROK 3/4] ✓ Zapisano do {output_file}")
+            
+            # Krok 4: Wysyłka do Moodle (opcjonalnie)
+            if upload_to_moodle_flag:
+                logger.info("\n[KROK 4/4] Wysyłanie do Moodle...")
+                if self.upload_to_moodle(merged_text, output_file.name):
+                    logger.info("[KROK 4/4] ✓ Wysłano do Moodle")
+                else:
+                    logger.warning("[KROK 4/4] ⚠ Nie udało się wysłać do Moodle (sprawdź konfigurację)")
+            else:
+                logger.info("\n[KROK 4/4] Pominięto wysyłkę do Moodle")
+            
+            logger.info("\n" + "=" * 80)
+            logger.info("✅ PEŁNY PIPELINE ZAKOŃCZONY SUKCESEM")
+            logger.info("=" * 80)
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Błąd podczas przetwarzania pipeline: {e}")
+            return False
     
     def aggregate_results(self, results: List[Dict]) -> Dict[str, Any]:
         """

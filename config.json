@@ -128,5 +128,11 @@
     "retry_delay": 5,
     "task_timeout": 300,
     "aggregation_enabled": true
+  },
+  "moodle": {
+    "url": "",
+    "token": "",
+    "course_id": "",
+    "section_id": ""
   }
 }
