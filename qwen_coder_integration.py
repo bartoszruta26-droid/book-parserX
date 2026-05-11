@@ -855,9 +855,10 @@ class MultiAIIntegration:
         
         # Zaktualizuj konfigurację sesji dla konkretnej platformy
         platform_key = platform.replace(".", "_").replace("-", "_")
-        if platform_key in self.config:
-            session.config[platform_key]["email"] = credentials["email"]
-            session.config[platform_key]["password"] = credentials["password"]
+        if platform_key not in session.config:
+            session.config[platform_key] = {}
+        session.config[platform_key]["email"] = credentials["email"]
+        session.config[platform_key]["password"] = credentials["password"]
         
         # Logowanie z platformą
         if not session.login(platform=platform):
@@ -895,7 +896,7 @@ class MultiAIIntegration:
             return None
         
         session = self.sessions[node_id]
-        return session.send_query(query, platform=ai_platform)
+        return session.send_query(query)
     
     def _query_local_llm(self, node_id: str, query: str, node_config: Dict) -> Optional[str]:
         """
