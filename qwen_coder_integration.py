@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Qwen Coder AI Integration Module
-Integracja z coder.qwen.ai - automatyczne logowanie i wysyłanie zapytań
+Qwen Coder AI Integration Module - Rozszerzona wersja dla klastra Raspberry Pi
+Integracja z wieloma platformami AI: coder.qwen.ai, chatgpt.com, grok.com
 
 Funkcje:
-    - Logowanie do coder.qwen.ai przy użyciu danych z pliku konfiguracyjnego
-    - Wysyłanie zapytań do modelu Qwen Coder
+    - Logowanie do wielu platform AI przy użyciu danych z pliku konfiguracyjnego
+    - Wysyłanie zapytań do różnych modeli AI (Qwen Coder, ChatGPT, Grok)
     - Odbieranie i parsowanie odpowiedzi
     - Obsługa sesji przeglądarkowej przez Selenium/Playwright
     - Integracja z klastrem Raspberry Pi (3x RPi4 + 3x RPi1)
+    - RPi4: wykorzystują lokalne LLM
+    - RPi1: wykorzystują webowe AI (coder.qwen.ai, chatgpt.com, grok.com)
+    - Agregacja wyników z różnych AI w nodzie master
     
 Autor: bartosz.ruta26@gmail.com
 Licencja: MIT
@@ -23,6 +26,7 @@ import logging
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from pathlib import Path
+from enum import Enum
 
 # Konfiguracja logowania
 logging.basicConfig(
@@ -39,19 +43,42 @@ SCRIPT_DIR = Path(__file__).parent.absolute()
 CONFIG_FILE = SCRIPT_DIR / "config.json"
 SESSIONS_DIR = SCRIPT_DIR / "qwen_sessions"
 LOGS_DIR = SCRIPT_DIR / "logs"
+RESULTS_DIR = SCRIPT_DIR / "results"
+
+
+class NodeType(Enum):
+    """Typy node'ów w klastrze"""
+    RPI4 = "rpi4"  # Wykorzystuje lokalne LLM
+    RPI1 = "rpi1"  # Wykorzystuje webowe AI
+
+
+class AIPlatform(Enum):
+    """Dostępne platformy AI"""
+    QWEN_CODER = "coder.qwen.ai"
+    CHATGPT = "chatgpt.com"
+    GROK = "grok.com"
+    LOCAL_LLM = "local_llm"  # Dla RPi4
+
 
 # Domyślne ustawienia klastra
 CLUSTER_CONFIG = {
     "nodes": [
-        {"id": "rpi4-1", "type": "rpi4", "host": "192.168.1.101", "port": 8080, "cores": 4},
-        {"id": "rpi4-2", "type": "rpi4", "host": "192.168.1.102", "port": 8080, "cores": 4},
-        {"id": "rpi4-3", "type": "rpi4", "host": "192.168.1.103", "port": 8080, "cores": 4},
-        {"id": "rpi1-1", "type": "rpi1", "host": "192.168.1.104", "port": 8080, "cores": 1},
-        {"id": "rpi1-2", "type": "rpi1", "host": "192.168.1.105", "port": 8080, "cores": 1},
-        {"id": "rpi1-3", "type": "rpi1", "host": "192.168.1.106", "port": 8080, "cores": 1},
+        {"id": "rpi4-1", "type": "rpi4", "host": "192.168.1.101", "port": 8080, "cores": 4, 
+         "ai_platform": "local_llm", "llm_model": "llama-2-7b"},
+        {"id": "rpi4-2", "type": "rpi4", "host": "192.168.1.102", "port": 8080, "cores": 4,
+         "ai_platform": "local_llm", "llm_model": "llama-2-7b"},
+        {"id": "rpi4-3", "type": "rpi4", "host": "192.168.1.103", "port": 8080, "cores": 4,
+         "ai_platform": "local_llm", "llm_model": "llama-2-7b"},
+        {"id": "rpi1-1", "type": "rpi1", "host": "192.168.1.104", "port": 8080, "cores": 1,
+         "ai_platform": "coder.qwen.ai", "credentials_profile": "qwen_profile_1"},
+        {"id": "rpi1-2", "type": "rpi1", "host": "192.168.1.105", "port": 8080, "cores": 1,
+         "ai_platform": "chatgpt.com", "credentials_profile": "chatgpt_profile_1"},
+        {"id": "rpi1-3", "type": "rpi1", "host": "192.168.1.106", "port": 8080, "cores": 1,
+         "ai_platform": "grok.com", "credentials_profile": "grok_profile_1"},
     ],
     "mode": "serial",  # serial, parallel, hybrid
-    "current_node": 0
+    "current_node": 0,
+    "master_node": "rpi4-1"
 }
 
 
@@ -111,7 +138,7 @@ class QwenCoderIntegration:
     
     def _create_default_config(self) -> Dict[str, Any]:
         """
-        Tworzy domyślną konfigurację
+        Tworzy domyślną konfigurację z obsługą wielu platform AI i profili logowania
         
         Returns:
             Słownik z domyślną konfiguracją
@@ -124,6 +151,58 @@ class QwenCoderIntegration:
                 "login_url": "https://coder.qwen.ai/login",
                 "api_endpoint": "https://coder.qwen.ai/api/v1/chat/completions"
             },
+            "chatgpt": {
+                "email": "",
+                "password": "",
+                "base_url": "https://chatgpt.com",
+                "login_url": "https://chatgpt.com/auth/login"
+            },
+            "grok": {
+                "email": "",
+                "password": "",
+                "base_url": "https://grok.com",
+                "login_url": "https://grok.com/login"
+            },
+            # Profile logowania dla różnych node'ów - każdy może mieć inne dane
+            "credentials_profiles": {
+                "qwen_profile_1": {
+                    "platform": "coder.qwen.ai",
+                    "email": "user1@example.com",
+                    "password": ""
+                },
+                "qwen_profile_2": {
+                    "platform": "coder.qwen.ai",
+                    "email": "user2@example.com",
+                    "password": ""
+                },
+                "chatgpt_profile_1": {
+                    "platform": "chatgpt.com",
+                    "email": "chatgpt_user1@example.com",
+                    "password": ""
+                },
+                "chatgpt_profile_2": {
+                    "platform": "chatgpt.com",
+                    "email": "chatgpt_user2@example.com",
+                    "password": ""
+                },
+                "grok_profile_1": {
+                    "platform": "grok.com",
+                    "email": "grok_user1@example.com",
+                    "password": ""
+                },
+                "grok_profile_2": {
+                    "platform": "grok.com",
+                    "email": "grok_user2@example.com",
+                    "password": ""
+                }
+            },
+            "local_llm": {
+                "enabled": True,
+                "model": "llama-2-7b",
+                "port": 5000,
+                "host": "localhost",
+                "api_endpoint": "http://localhost:5000/v1/chat/completions"
+            },
             "cluster": CLUSTER_CONFIG,
             "browser": {
                 "headless": False,
@@ -133,7 +212,8 @@ class QwenCoderIntegration:
             "processing": {
                 "max_retries": 3,
                 "retry_delay": 5,
-                "task_timeout": 300
+                "task_timeout": 300,
+                "aggregation_enabled": True
             }
         }
         
@@ -569,6 +649,353 @@ class QwenCoderIntegration:
 
 
 # ============================================================================
+# KLASA MULTI_AI_INTEGRATION - Obsługa wielu platform AI
+# ============================================================================
+
+class MultiAIIntegration:
+    """
+    Klasa obsługująca integrację z wieloma platformami AI:
+    - coder.qwen.ai
+    - chatgpt.com
+    - grok.com
+    - Local LLM (dla RPi4)
+    
+    Każdy node klastra może używać innych danych logowania do różnych platform.
+    """
+    
+    def __init__(self, config_path: Optional[Path] = None):
+        """
+        Inicjalizacja integracji z wieloma AI
+        
+        Args:
+            config_path: Ścieżka do pliku konfiguracyjnego
+        """
+        self.config_path = config_path or CONFIG_FILE
+        self.config = self._load_config()
+        self.sessions: Dict[str, QwenCoderIntegration] = {}
+        self.browser_sessions: Dict[str, Any] = {}
+        
+        # Zapewnij istnienie katalogów
+        RESULTS_DIR.mkdir(exist_ok=True)
+        
+        logger.info("Zainicjalizowano MultiAIIntegration")
+    
+    def _load_config(self) -> Dict[str, Any]:
+        """Ładuje konfigurację"""
+        if not self.config_path.exists():
+            logger.warning(f"Plik konfiguracyjny nie istnieje: {self.config_path}")
+            return {}
+        
+        try:
+            with open(self.config_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Błąd ładowania konfiguracji: {e}")
+            return {}
+    
+    def get_credentials_for_node(self, node_id: str) -> Dict[str, str]:
+        """
+        Pobiera dane logowania dla konkretnego node'a
+        
+        Args:
+            node_id: ID node'a
+            
+        Returns:
+            Słownik z danymi logowania (email, password, platform)
+        """
+        cluster_config = self.config.get("cluster", {})
+        nodes = cluster_config.get("nodes", [])
+        
+        node = next((n for n in nodes if n["id"] == node_id), None)
+        if not node:
+            logger.error(f"Nie znaleziono node'a: {node_id}")
+            return {}
+        
+        ai_platform = node.get("ai_platform", "coder.qwen.ai")
+        credentials_profile = node.get("credentials_profile", "")
+        
+        if credentials_profile and credentials_profile in self.config.get("credentials_profiles", {}):
+            profile = self.config["credentials_profiles"][credentials_profile]
+            return {
+                "email": profile.get("email", ""),
+                "password": profile.get("password", ""),
+                "platform": profile.get("platform", ai_platform),
+                "login_url": self._get_login_url(profile.get("platform", ai_platform))
+            }
+        
+        # Fallback do domyślnej konfiguracji platformy
+        platform_config = self.config.get(ai_platform.replace(".", "_").replace("-", "_"), {})
+        return {
+            "email": platform_config.get("email", ""),
+            "password": platform_config.get("password", ""),
+            "platform": ai_platform,
+            "login_url": platform_config.get("login_url", "")
+        }
+    
+    def _get_login_url(self, platform: str) -> str:
+        """Pobiera URL logowania dla platformy"""
+        urls = {
+            "coder.qwen.ai": "https://coder.qwen.ai/login",
+            "chatgpt.com": "https://chatgpt.com/auth/login",
+            "grok.com": "https://grok.com/login"
+        }
+        return urls.get(platform, "")
+    
+    def login_to_platform(self, node_id: str, browser_type: str = "selenium") -> bool:
+        """
+        Loguje się do platformy AI przypisanej do node'a
+        
+        Args:
+            node_id: ID node'a
+            browser_type: Typ przeglądarki
+            
+        Returns:
+            True jeśli logowanie powiodło się
+        """
+        credentials = self.get_credentials_for_node(node_id)
+        if not credentials.get("email") or not credentials.get("password"):
+            logger.error(f"Brak danych logowania dla node'a {node_id}")
+            return False
+        
+        # Utwórz nową sesję dla tego node'a
+        session = QwenCoderIntegration(self.config_path)
+        
+        if not session.initialize_browser(browser_type):
+            logger.error(f"Nie udało się zainicjalizować przeglądarki dla {node_id}")
+            return False
+        
+        # Tymczasowa modyfikacja konfiguracji dla sesji
+        session.config["qwen_coder"]["email"] = credentials["email"]
+        session.config["qwen_coder"]["password"] = credentials["password"]
+        session.config["qwen_coder"]["login_url"] = credentials["login_url"]
+        session.config["qwen_coder"]["base_url"] = f"https://{credentials['platform']}"
+        
+        if not session.login():
+            session.close()
+            return False
+        
+        self.sessions[node_id] = session
+        logger.info(f"Zalogowano node {node_id} do {credentials['platform']}")
+        return True
+    
+    def send_query_to_node(self, node_id: str, query: str) -> Optional[str]:
+        """
+        Wysyła zapytanie do konkretnego node'a
+        
+        Args:
+            node_id: ID node'a
+            query: Treść zapytania
+            
+        Returns:
+            Odpowiedź z AI lub None
+        """
+        cluster_config = self.config.get("cluster", {})
+        nodes = cluster_config.get("nodes", [])
+        
+        node = next((n for n in nodes if n["id"] == node_id), None)
+        if not node:
+            logger.error(f"Nie znaleziono node'a: {node_id}")
+            return None
+        
+        ai_platform = node.get("ai_platform", "coder.qwen.ai")
+        
+        # RPi4 używa lokalnego LLM
+        if ai_platform == "local_llm":
+            return self._query_local_llm(node_id, query, node)
+        
+        # RPi1 używa webowych AI
+        if node_id not in self.sessions:
+            logger.error(f"Node {node_id} nie jest zalogowany")
+            return None
+        
+        session = self.sessions[node_id]
+        return session.send_query(query)
+    
+    def _query_local_llm(self, node_id: str, query: str, node_config: Dict) -> Optional[str]:
+        """
+        Wysyła zapytanie do lokalnego LLM na RPi4
+        
+        Args:
+            node_id: ID node'a
+            query: Treść zapytania
+            node_config: Konfiguracja node'a
+            
+        Returns:
+            Odpowiedź z LLM lub None
+        """
+        try:
+            import requests
+            
+            llm_config = self.config.get("local_llm", {})
+            host = node_config.get("host", "localhost")
+            port = llm_config.get("port", 5000)
+            endpoint = llm_config.get("api_endpoint", f"http://{host}:{port}/v1/chat/completions")
+            
+            payload = {
+                "model": llm_config.get("model", "llama-2-7b"),
+                "messages": [
+                    {"role": "user", "content": query}
+                ],
+                "max_tokens": 1024,
+                "temperature": 0.7
+            }
+            
+            response = requests.post(endpoint, json=payload, timeout=60)
+            response.raise_for_status()
+            
+            result = response.json()
+            return result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            
+        except Exception as e:
+            logger.error(f"Błąd komunikacji z lokalnym LLM ({node_id}): {e}")
+            return None
+    
+    def process_cluster_sequential(self, queries: List[str]) -> List[Dict]:
+        """
+        Przetwarza zapytania szeregowo na wszystkich node'ach klastra
+        
+        Args:
+            queries: Lista zapytań
+            
+        Returns:
+            Lista wyników z wszystkich node'ów
+        """
+        cluster_config = self.config.get("cluster", {})
+        nodes = cluster_config.get("nodes", [])
+        
+        logger.info(f"Rozpoczynanie przetwarzania szeregowego na {len(nodes)} node'ach")
+        
+        all_results = []
+        
+        for i, query in enumerate(queries):
+            logger.info(f"[{i+1}/{len(queries)}] Przetwarzanie zapytania: {query[:50]}...")
+            
+            query_results = []
+            
+            # Wyślij to samo zapytanie do wszystkich node'ów
+            for node in nodes:
+                node_id = node["id"]
+                node_type = node["type"]
+                ai_platform = node.get("ai_platform", "coder.qwen.ai")
+                
+                logger.info(f"  -> Node {node_id} ({ai_platform})")
+                
+                result = {
+                    "query_index": i,
+                    "query": query,
+                    "node_id": node_id,
+                    "node_type": node_type,
+                    "ai_platform": ai_platform,
+                    "response": None,
+                    "success": False,
+                    "error": None,
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+                try:
+                    # Dla RPi1 najpierw zaloguj jeśli trzeba
+                    if node_type == "rpi1" and node_id not in self.sessions:
+                        if not self.login_to_platform(node_id):
+                            result["error"] = "Błąd logowania"
+                            query_results.append(result)
+                            continue
+                    
+                    response = self.send_query_to_node(node_id, query)
+                    
+                    if response:
+                        result["response"] = response
+                        result["success"] = True
+                        logger.info(f"     ✓ Otrzymano odpowiedź ({len(response)} znaków)")
+                    else:
+                        result["error"] = "Brak odpowiedzi"
+                        
+                except Exception as e:
+                    result["error"] = str(e)
+                    logger.error(f"     ✗ Błąd: {e}")
+                
+                query_results.append(result)
+                time.sleep(2)  # Opóźnienie między node'ami
+            
+            all_results.extend(query_results)
+        
+        return all_results
+    
+    def aggregate_results(self, results: List[Dict]) -> Dict[str, Any]:
+        """
+        Agreguje wyniki z różnych AI w nodzie master
+        
+        Args:
+            results: Lista wyników z wszystkich node'ów
+            
+        Returns:
+            Zagregowane wyniki
+        """
+        cluster_config = self.config.get("cluster", {})
+        master_node = cluster_config.get("master_node", "rpi4-1")
+        
+        logger.info(f"Agregacja wyników w nodzie master: {master_node}")
+        
+        # Grupuj wyniki według zapytania
+        queries_results: Dict[int, List[Dict]] = {}
+        for result in results:
+            q_idx = result["query_index"]
+            if q_idx not in queries_results:
+                queries_results[q_idx] = []
+            queries_results[q_idx].append(result)
+        
+        aggregated = {
+            "timestamp": datetime.now().isoformat(),
+            "master_node": master_node,
+            "total_queries": len(queries_results),
+            "total_responses": len([r for r in results if r["success"]]),
+            "queries": []
+        }
+        
+        for q_idx in sorted(queries_results.keys()):
+            query_data = queries_results[q_idx][0] if queries_results[q_idx] else {}
+            
+            # Zbierz odpowiedzi z różnych AI
+            ai_responses = {}
+            for result in queries_results[q_idx]:
+                platform = result.get("ai_platform", "unknown")
+                if result.get("success") and result.get("response"):
+                    ai_responses[platform] = {
+                        "response": result["response"],
+                        "node_id": result["node_id"],
+                        "length": len(result["response"])
+                    }
+            
+            aggregated["queries"].append({
+                "query_index": q_idx,
+                "query": query_data.get("query", ""),
+                "ai_responses": ai_responses,
+                "successful_platforms": list(ai_responses.keys()),
+                "failed_platforms": [
+                    r["ai_platform"] for r in queries_results[q_idx] 
+                    if not r.get("success")
+                ]
+            })
+        
+        # Zapisz zagregowane wyniki
+        output_file = RESULTS_DIR / f"aggregated_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        try:
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(aggregated, f, indent=2, ensure_ascii=False)
+            logger.info(f"Zapisano zagregowane wyniki do {output_file}")
+        except Exception as e:
+            logger.error(f"Błąd zapisu zagregowanych wyników: {e}")
+        
+        return aggregated
+    
+    def close_all(self):
+        """Zamyka wszystkie sesje"""
+        for node_id, session in self.sessions.items():
+            logger.info(f"Zamykanie sesji dla {node_id}")
+            session.close()
+        self.sessions.clear()
+
+
+# ============================================================================
 # FUNKCJE POMOCNICZE
 # ============================================================================
 
@@ -650,20 +1077,105 @@ def run_sequential_pipeline(queries: List[str], config_path: Optional[Path] = No
 if __name__ == "__main__":
     import argparse
     
-    parser = argparse.ArgumentParser(description='Qwen Coder AI Integration')
+    parser = argparse.ArgumentParser(
+        description='Qwen Coder AI Integration - Multi-Platform Cluster',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Przykłady użycia:
+  python qwen_coder_integration.py --test
+  python qwen_coder_integration.py --query "Jaki jest najlepszy sposób na optymalizację kodu Python?"
+  python qwen_coder_integration.py --multi --cluster-test
+  python qwen_coder_integration.py --multi --batch queries.json
+  python qwen_coder_integration.py --aggregate results.json
+        """
+    )
     parser.add_argument('--config', type=str, help='Ścieżka do pliku konfiguracyjnego')
-    parser.add_argument('--test', action='store_true', help='Uruchom test logowania')
+    parser.add_argument('--test', action='store_true', help='Uruchom test logowania do coder.qwen.ai')
     parser.add_argument('--query', type=str, help='Pojedyncze zapytanie do wysłania')
     parser.add_argument('--batch', type=str, help='Plik JSON z listą zapytań')
     
+    # Opcje dla multi-platform cluster
+    parser.add_argument('--multi', action='store_true', help='Tryb multi-platform (wszystkie AI)')
+    parser.add_argument('--cluster-test', action='store_true', help='Test klastra z wszystkimi node\'ami')
+    parser.add_argument('--aggregate', type=str, help='Agreguj wyniki z pliku JSON')
+    parser.add_argument('--node', type=str, help='ID konkretnego node\'a do testu')
+
     args = parser.parse_args()
     
     config_path = Path(args.config) if args.config else None
-    integrator = QwenCoderIntegration(config_path)
     
     try:
-        if args.test:
-            # Test logowania
+        if args.multi or args.cluster_test:
+            # Tryb multi-platform z agregacją wyników
+            logger.info("=" * 80)
+            logger.info("🚀 MULTI-PLATFORM CLUSTER TEST - 3x RPi4 + 3x RPi1")
+            logger.info("=" * 80)
+            
+            multi_ai = MultiAIIntegration(config_path)
+            
+            try:
+                # Testowe zapytania
+                if args.cluster_test:
+                    queries = [
+                        "Wyjaśnij czym jest rekurencja w programowaniu",
+                        "Jak optimize'ować zapytania SQL?",
+                        "Napisz funkcję Python obliczającą silnię"
+                    ]
+                elif args.batch:
+                    batch_file = Path(args.batch)
+                    if batch_file.exists():
+                        with open(batch_file, 'r', encoding='utf-8') as f:
+                            queries = json.load(f)
+                        if not isinstance(queries, list):
+                            print("❌ Plik batch powinien zawierać listę zapytań")
+                            sys.exit(1)
+                    else:
+                        print(f"❌ Plik nie istnieje: {batch_file}")
+                        sys.exit(1)
+                else:
+                    queries = ["Testowe zapytanie do wszystkich platform AI"]
+                
+                # Przetwarzanie szeregowe na całym klastrze
+                results = multi_ai.process_cluster_sequential(queries)
+                
+                # Agregacja wyników w nodzie master
+                aggregated = multi_ai.aggregate_results(results)
+                
+                # Podsumowanie
+                logger.info("=" * 80)
+                logger.info("📊 PODSUMOWANIE")
+                logger.info("=" * 80)
+                logger.info(f"Total queries: {aggregated['total_queries']}")
+                logger.info(f"Total responses: {aggregated['total_responses']}")
+                logger.info(f"Master node: {aggregated['master_node']}")
+                
+                for q in aggregated['queries']:
+                    logger.info(f"\nQuery {q['query_index']}: {q['query'][:50]}...")
+                    logger.info(f"  ✓ Successful platforms: {q['successful_platforms']}")
+                    if q['failed_platforms']:
+                        logger.info(f"  ✗ Failed platforms: {q['failed_platforms']}")
+                
+                logger.info("=" * 80)
+                
+            finally:
+                multi_ai.close_all()
+        
+        elif args.aggregate:
+            # Agregacja istniejących wyników
+            results_file = Path(args.aggregate)
+            if results_file.exists():
+                with open(results_file, 'r', encoding='utf-8') as f:
+                    results = json.load(f)
+                
+                multi_ai = MultiAIIntegration(config_path)
+                aggregated = multi_ai.aggregate_results(results)
+                multi_ai.close_all()
+            else:
+                print(f"❌ Plik nie istnieje: {results_file}")
+        
+        elif args.test:
+            # Test logowania (tryb legacy)
+            integrator = QwenCoderIntegration(config_path)
             print("Test logowania do coder.qwen.ai...")
             if integrator.initialize_browser("selenium"):
                 if integrator.login():
@@ -672,9 +1184,11 @@ if __name__ == "__main__":
                     print("❌ Logowanie nieudane")
             else:
                 print("❌ Nie udało się zainicjalizować przeglądarki")
-        
+            integrator.close()
+
         elif args.query:
-            # Pojedyncze zapytanie
+            # Pojedyncze zapytanie (tryb legacy)
+            integrator = QwenCoderIntegration(config_path)
             if integrator.initialize_browser("selenium") and integrator.login():
                 response = integrator.send_query(args.query)
                 if response:
@@ -685,23 +1199,17 @@ if __name__ == "__main__":
                     print("=" * 60)
                 else:
                     print("❌ Nie otrzymano odpowiedzi")
-        
+            integrator.close()
+
         elif args.batch:
-            # Batch zapytań z pliku
-            batch_file = Path(args.batch)
-            if batch_file.exists():
-                with open(batch_file, 'r', encoding='utf-8') as f:
-                    queries = json.load(f)
-                
-                if isinstance(queries, list):
-                    run_sequential_pipeline(queries, config_path)
-                else:
-                    print("❌ Plik batch powinien zawierać listę zapytań")
-            else:
-                print(f"❌ Plik nie istnieje: {batch_file}")
-        
+            # Batch zapytań (tryb legacy)
+            run_sequential_pipeline([], config_path)
+
         else:
             parser.print_help()
-    
-    finally:
-        integrator.close()
+
+    except KeyboardInterrupt:
+        logger.info("\n⚠️ Przerwano przez użytkownika")
+    except Exception as e:
+        logger.error(f"Błąd: {e}")
+        raise
