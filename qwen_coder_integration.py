@@ -339,17 +339,31 @@ class QwenCoderIntegration:
             logger.error(f"Błąd inicjalizacji Playwright: {e}")
             return False
     
-    def login(self) -> bool:
+    def login(self, platform: Optional[str] = None) -> bool:
         """
-        Loguje się do coder.qwen.ai
+        Loguje się do platformy AI (coder.qwen.ai, chatgpt.com, grok.com)
+        
+        Args:
+            platform: Nazwa platformy (domyślnie z konfiguracji qwen_coder.platform)
         
         Returns:
             True jeśli logowanie powiodło się
         """
-        qwen_config = self.config.get("qwen_coder", {})
-        email = qwen_config.get("email", "")
-        password = qwen_config.get("password", "")
-        login_url = qwen_config.get("login_url", "https://coder.qwen.ai/login")
+        # Sprawdź czy mamy konfigurację dla konkretnej platformy
+        if platform:
+            platform_key = platform.replace(".", "_").replace("-", "_")
+            platform_config = self.config.get(platform_key, {})
+            email = platform_config.get("email", "")
+            password = platform_config.get("password", "")
+            login_url = platform_config.get("login_url", "")
+            base_url = platform_config.get("base_url", f"https://{platform}")
+        else:
+            qwen_config = self.config.get("qwen_coder", {})
+            email = qwen_config.get("email", "")
+            password = qwen_config.get("password", "")
+            login_url = qwen_config.get("login_url", "https://coder.qwen.ai/login")
+            base_url = qwen_config.get("base_url", "https://coder.qwen.ai")
+            platform = "coder.qwen.ai"
         
         if not email or not password:
             logger.error("Brak danych logowania w konfiguracji")
@@ -360,20 +374,30 @@ class QwenCoderIntegration:
             return False
         
         try:
-            logger.info(f"Logowanie do {login_url} jako {email}")
+            logger.info(f"Logowanie do {login_url} jako {email} (platforma: {platform})")
             
             if hasattr(self, 'playwright'):
                 # Playwright
                 page = self.browser.new_page()
                 page.goto(login_url)
                 
-                # Znajdź pola logowania i wypełnij je
-                page.fill('input[type="email"]', email)
-                page.fill('input[type="password"]', password)
-                page.click('button[type="submit"]')
-                
-                # Poczekaj na przekierowanie
-                page.wait_for_url("https://coder.qwen.ai/**", timeout=30000)
+                # Znajdź pola logowania i wypełnij je - różne selektory dla różnych platform
+                if "chatgpt" in platform:
+                    page.fill('input[type="email"]', email)
+                    page.fill('input[type="password"]', password)
+                    page.click('button[type="submit"]')
+                    page.wait_for_url("https://chatgpt.com/**", timeout=30000)
+                elif "grok" in platform:
+                    page.fill('input[type="email"]', email)
+                    page.fill('input[type="password"]', password)
+                    page.click('button[type="submit"]')
+                    page.wait_for_url("https://grok.com/**", timeout=30000)
+                else:
+                    # Domyślnie dla qwen
+                    page.fill('input[type="email"]', email)
+                    page.fill('input[type="password"]', password)
+                    page.click('button[type="submit"]')
+                    page.wait_for_url("https://coder.qwen.ai/**", timeout=30000)
                 
             else:
                 # Selenium
@@ -385,7 +409,7 @@ class QwenCoderIntegration:
                 
                 wait = WebDriverWait(self.browser, 30)
                 
-                # Wypełnij formularz logowania
+                # Wypełnij formularz logowania - różne selektory dla różnych platform
                 email_field = wait.until(EC.presence_of_element_located(
                     (By.CSS_SELECTOR, 'input[type="email"]')
                 ))
@@ -404,8 +428,13 @@ class QwenCoderIntegration:
                 )
                 submit_button.click()
                 
-                # Poczekaj na przekierowanie
-                wait.until(lambda driver: "coder.qwen.ai" in driver.current_url)
+                # Poczekaj na przekierowanie - różne URL dla różnych platform
+                if "chatgpt" in platform:
+                    wait.until(lambda driver: "chatgpt.com" in driver.current_url)
+                elif "grok" in platform:
+                    wait.until(lambda driver: "grok.com" in driver.current_url)
+                else:
+                    wait.until(lambda driver: "coder.qwen.ai" in driver.current_url)
             
             self.is_logged_in = True
             logger.info("Logowanie zakończone sukcesem")
@@ -435,13 +464,14 @@ class QwenCoderIntegration:
         except Exception as e:
             logger.error(f"Błąd zapisu sesji: {e}")
     
-    def send_query(self, query: str, context: Optional[Dict] = None) -> Optional[str]:
+    def send_query(self, query: str, context: Optional[Dict] = None, platform: Optional[str] = None) -> Optional[str]:
         """
-        Wysyła zapytanie do coder.qwen.ai i czeka na odpowiedź
+        Wysyła zapytanie do platformy AI i czeka na odpowiedź
         
         Args:
             query: Treść zapytania
             context: Dodatkowy kontekst (opcjonalnie)
+            platform: Nazwa platformy (domyślnie z konfiguracji)
             
         Returns:
             Odpowiedź z modelu lub None w przypadku błędu
@@ -454,24 +484,41 @@ class QwenCoderIntegration:
             logger.error("Przeglądarka nie jest zainicjalizowana")
             return None
         
-        try:
+        # Określ platformę i base_url
+        if platform:
+            platform_key = platform.replace(".", "_").replace("-", "_")
+            platform_config = self.config.get(platform_key, {})
+            base_url = platform_config.get("base_url", f"https://{platform}")
+        else:
             base_url = self.config.get("qwen_coder", {}).get("base_url", "https://coder.qwen.ai")
-            
-            logger.info(f"Wysyłanie zapytania: {query[:100]}...")
+            platform = "coder.qwen.ai"
+        
+        try:
+            logger.info(f"Wysyłanie zapytania do {platform}: {query[:100]}...")
             
             if hasattr(self, 'playwright'):
                 # Playwright
                 page = self.browser.pages[0] if self.browser.pages else self.browser.new_page()
                 page.goto(f"{base_url}/chat")
                 
-                # Znajdź pole input i wyślij zapytanie
-                page.wait_for_selector('textarea[placeholder*="Message"]', timeout=10000)
-                page.fill('textarea[placeholder*="Message"]', query)
-                page.press('textarea[placeholder*="Message"]', 'Enter')
+                # Znajdź pole input i wyślij zapytanie - różne selektory dla różnych platform
+                if "chatgpt" in platform:
+                    page.wait_for_selector('textarea[placeholder*="Message"]', timeout=10000)
+                    page.fill('textarea[placeholder*="Message"]', query)
+                    page.press('textarea[placeholder*="Message"]', 'Enter')
+                elif "grok" in platform:
+                    page.wait_for_selector('textarea, [contenteditable]', timeout=10000)
+                    page.fill('textarea, [contenteditable]', query)
+                    page.press('textarea, [contenteditable]', 'Enter')
+                else:
+                    # Domyślnie dla qwen
+                    page.wait_for_selector('textarea[placeholder*="Message"]', timeout=10000)
+                    page.fill('textarea[placeholder*="Message"]', query)
+                    page.press('textarea[placeholder*="Message"]', 'Enter')
                 
                 # Poczekaj na odpowiedź
                 logger.info("Oczekiwanie na odpowiedź...")
-                response = self._wait_for_response_playwright(page)
+                response = self._wait_for_response_playwright(page, platform)
                 
             else:
                 # Selenium
@@ -483,10 +530,20 @@ class QwenCoderIntegration:
                 
                 wait = WebDriverWait(self.browser, 30)
                 
-                # Znajdź pole input
-                input_field = wait.until(EC.presence_of_element_located(
-                    (By.CSS_SELECTOR, 'textarea[placeholder*="Message"]')
-                ))
+                # Znajdź pole input - różne selektory dla różnych platform
+                if "chatgpt" in platform:
+                    input_field = wait.until(EC.presence_of_element_located(
+                        (By.CSS_SELECTOR, 'textarea[placeholder*="Message"]')
+                    ))
+                elif "grok" in platform:
+                    input_field = wait.until(EC.presence_of_element_located(
+                        (By.CSS_SELECTOR, 'textarea, [contenteditable]')
+                    ))
+                else:
+                    input_field = wait.until(EC.presence_of_element_located(
+                        (By.CSS_SELECTOR, 'textarea[placeholder*="Message"]')
+                    ))
+                
                 input_field.clear()
                 input_field.send_keys(query)
                 
@@ -495,7 +552,7 @@ class QwenCoderIntegration:
                 
                 # Poczekaj na odpowiedź
                 logger.info("Oczekiwanie na odpowiedź...")
-                response = self._wait_for_response_selenium(wait)
+                response = self._wait_for_response_selenium(wait, platform)
             
             if response:
                 logger.info(f"Otrzymano odpowiedź ({len(response)} znaków)")
@@ -509,21 +566,30 @@ class QwenCoderIntegration:
             logger.error(f"Błąd wysyłania zapytania: {e}")
             return None
     
-    def _wait_for_response_selenium(self, wait) -> Optional[str]:
+    def _wait_for_response_selenium(self, wait, platform: Optional[str] = None) -> Optional[str]:
         """
         Czeka na odpowiedź w Selenium
         
         Args:
             wait: WebDriverWait object
+            platform: Nazwa platformy (dla różnych selektorów)
             
         Returns:
             Treść odpowiedzi lub None
         """
         try:
+            # Różne selektory dla różnych platform
+            if platform and "chatgpt" in platform:
+                selectors = '.message.assistant, .response, [data-role="assistant"], article.markdown'
+            elif platform and "grok" in platform:
+                selectors = '.message.assistant, .response, [data-role="assistant"], .prose'
+            else:
+                selectors = '.message.assistant, .response, [data-role="assistant"]'
+            
             # Poczekaj aż pojawi się odpowiedź
             response_element = wait.until(
                 EC.presence_of_element_located(
-                    (By.CSS_SELECTOR, '.message.assistant, .response, [data-role="assistant"]')
+                    (By.CSS_SELECTOR, selectors)
                 ),
                 timeout=60
             )
@@ -536,22 +602,31 @@ class QwenCoderIntegration:
             logger.error(f"Timeout oczekiwania na odpowiedź: {e}")
             return None
     
-    def _wait_for_response_playwright(self, page) -> Optional[str]:
+    def _wait_for_response_playwright(self, page, platform: Optional[str] = None) -> Optional[str]:
         """
         Czeka na odpowiedź w Playwright
         
         Args:
             page: Page object
+            platform: Nazwa platformy (dla różnych selektorów)
             
         Returns:
             Treść odpowiedzi lub None
         """
         try:
+            # Różne selektory dla różnych platform
+            if platform and "chatgpt" in platform:
+                selector = '.message.assistant, .response, [data-role="assistant"], article.markdown'
+            elif platform and "grok" in platform:
+                selector = '.message.assistant, .response, [data-role="assistant"], .prose'
+            else:
+                selector = '.message.assistant, .response, [data-role="assistant"]'
+            
             # Poczekaj na element odpowiedzi
-            page.wait_for_selector('.message.assistant, .response, [data-role="assistant"]', timeout=60000)
+            page.wait_for_selector(selector, timeout=60000)
             
             # Pobierz treść
-            response_elements = page.query_selector_all('.message.assistant, .response, [data-role="assistant"]')
+            response_elements = page.query_selector_all(selector)
             if response_elements:
                 return response_elements[-1].inner_text()
             
@@ -623,7 +698,9 @@ class QwenCoderIntegration:
             }
             
             try:
-                response = self.send_query(query)
+                # Pobierz platformę dla tego node'a
+                ai_platform = current_node.get("ai_platform", "coder.qwen.ai")
+                response = self.send_query(query, platform=ai_platform)
                 if response:
                     result["response"] = response
                     result["success"] = True
@@ -773,13 +850,17 @@ class MultiAIIntegration:
             logger.error(f"Nie udało się zainicjalizować przeglądarki dla {node_id}")
             return False
         
-        # Tymczasowa modyfikacja konfiguracji dla sesji
-        session.config["qwen_coder"]["email"] = credentials["email"]
-        session.config["qwen_coder"]["password"] = credentials["password"]
-        session.config["qwen_coder"]["login_url"] = credentials["login_url"]
-        session.config["qwen_coder"]["base_url"] = f"https://{credentials['platform']}"
+        # Platforma dla tego node'a
+        platform = credentials['platform']
         
-        if not session.login():
+        # Zaktualizuj konfigurację sesji dla konkretnej platformy
+        platform_key = platform.replace(".", "_").replace("-", "_")
+        if platform_key in self.config:
+            session.config[platform_key]["email"] = credentials["email"]
+            session.config[platform_key]["password"] = credentials["password"]
+        
+        # Logowanie z platformą
+        if not session.login(platform=platform):
             session.close()
             return False
         
@@ -814,7 +895,7 @@ class MultiAIIntegration:
             return None
         
         session = self.sessions[node_id]
-        return session.send_query(query)
+        return session.send_query(query, platform=ai_platform)
     
     def _query_local_llm(self, node_id: str, query: str, node_config: Dict) -> Optional[str]:
         """
@@ -1437,8 +1518,17 @@ Przykłady użycia:
             integrator.close()
 
         elif args.batch:
-            # Batch zapytań (tryb legacy)
-            run_sequential_pipeline([], config_path)
+            # Batch zapytań z pliku (tryb legacy)
+            batch_file = Path(args.batch)
+            if batch_file.exists():
+                with open(batch_file, 'r', encoding='utf-8') as f:
+                    queries = json.load(f)
+                if isinstance(queries, list):
+                    run_sequential_pipeline(queries, config_path)
+                else:
+                    print("❌ Plik batch powinien zawierać listę zapytań")
+            else:
+                print(f"❌ Plik nie istnieje: {batch_file}")
 
         else:
             parser.print_help()
