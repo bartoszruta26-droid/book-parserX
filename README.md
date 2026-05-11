@@ -1,105 +1,233 @@
-# Book Rewriting Pipeline
+# Book Rewriting Pipeline z integracją Moodle
 
-## Opis Projektu
+## 📖 Opis Projektu
 
-Projekt **Book Rewriting Pipeline** to system do przepisywania i przetwarzania książek, wykorzystujący potok (pipeline) złożony z trzech modeli AI:
+Projekt **Book Rewriting Pipeline** to zaawansowany system do przepisywania i przetwarzania książek, wykorzystujący potok (pipeline) złożony z modeli AI Qwen oraz automatyczną wysyłkę do platformy Moodle.
 
-1. **qwen-agent** - Agent zarządzający przepływem pracy i koordynujący zadania
-2. **qwen-coder** - Model specjalizujący się w generowaniu i refaktoryzacji kodu
-3. **qwen3.6-35B-A3B** - Duży model językowy do zaawansowanego przetwarzania tekstu
+### 🔑 Kluczowe Funkcje
 
-## Architektura
+1. **Konwersja plików** - Obsługa wielu formatów (PDF, DOC, DOCX, ODT, RTF, HTML, MD)
+2. **Chunking** - Inteligentny podział tekstu na chunki ~4096 tokenów z metadanymi
+3. **Przepisywanie AI** - Wykorzystanie modeli qwen-coder i qwen3.6-35B-A3B
+4. **Składanie książki** - Automatyczne łączenie przetworzonych chunków
+5. **Upload do Moodle** - Wysyłka gotowych materiałów przez Web Services API
+
+### 🏗️ Architektura
 
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────────┐
-│ qwen-agent  │ --> │ qwen-coder  │ --> │ qwen3.6-35B-A3B │
-│  (Koordynator) │     │  (Kod/Struktura)│     │  (Treść/Styl)   │
-└─────────────┘     └─────────────┘     └─────────────────┘
+┌─────────────┐     ┌─────────────┐     ┌─────────────────┐     ┌──────────┐
+│ qwen-agent  │ --> │ qwen-coder  │ --> │ qwen3.6-35B-A3B │ --> │  Moodle  │
+│ (Koordynator)│     │(Struktura)  │     │   (Treść)       │     │  Upload  │
+└─────────────┘     └─────────────┘     └─────────────────┘     └──────────┘
 ```
 
-## Wymagania
-
-- Bash shell (GNU Bash 4.0+)
-- curl lub wget
-- jq (do parsowania JSON)
-- Dostęp do API modeli Qwen
-
-## Struktura Projektu
+## 📁 Struktura Projektu
 
 ```
 /workspace/
-├── README.md           # Ten plik
-├── install.sh          # Skrypt instalacyjny i konfiguracyjny [NOWOŚĆ]
-├── pipeline.sh         # Główny skrypt potoku z interfejsem TUI
-├── convert_to_txt.sh   # Skrypt do konwersji plików na format TXT
-├── chunk_script.sh     # Skrypt do dzielenia plików na chunki
-├── rewrite_chunks.sh   # Skrypt do przepisywania chunków z AI
-├── webui.py            # Interfejs webowy (WebUI)
-├── config.sh           # Konfiguracja API i parametrów
-├── config.sh.example   # Przykładowy plik konfiguracyjny [NOWOŚĆ]
-├── requirements.txt    # Zależności Python [NOWOŚĆ]
-├── start_vllm.sh       # Skrypt startowy dla vLLM (opcjonalny)
-├── input/              # Katalog z plikami wejściowymi (książki)
-├── tmp/                # Pliki tymczasowe (.txt po konwersji)
-├── chunk/              # Chunki po 4096 tokenów z metadanymi JSON
-├── output/             # Przetworzone chunki (JSON z przepisaną treścią)
-├── logs/               # Logi z procesu przetwarzania
-├── temp/               # Dodatkowe pliki robocze
-├── venv/               # Wirtualne środowisko Python
-└── /finish/            # Finalne książki (złożone z chunków)
+├── README.md               # Ten plik
+├── install.sh              # Instalator i konfigurator [ZAKTUALIZOWANY]
+├── full_workflow.sh        # Kompletny workflow jedną komendą [NOWOŚĆ]
+├── upload_to_moodle.sh     # Wysyłka do Moodle [NOWOŚĆ]
+├── pipeline.sh             # Główny skrypt z interfejsem TUI
+├── convert_to_txt.sh       # Konwersja plików na TXT
+├── chunk_script.sh         # Dzielenie na chunki z metadanymi JSON
+├── rewrite_chunks.sh       # Przepisywanie chunków przez AI
+├── webui.py                # Interfejs webowy (Gradio)
+├── config.sh.example       # Przykładowa konfiguracja
+├── requirements.txt        # Zależności Python
+├── input/                  # Pliki wejściowe (książki)
+├── tmp/                    # Pliki tymczasowe (.txt po konwersji)
+├── chunk/                  # Chunki z metadanymi JSON
+├── output/                 # Przetworzone chunki (JSON)
+├── finish/                 # Gotowe książki (złożone z chunków)
+└── logs/                   # Logi procesu
 ```
 
-## Instalacja
+## 🚀 Szybki Start
 
-### Szybki start
-
-Najprostszy sposób instalacji:
+### 1. Instalacja
 
 ```bash
-# 1. Sklonuj repozytorium
+# Klonowanie repozytorium
 git clone <repository-url>
 cd book-parserX
 
-# 2. Uruchom skrypt instalacyjny
+# Uruchomienie instalatora
 ./install.sh
 
-# 3. Skonfiguruj API
+# Lub z dodatkowymi opcjami:
+./install.sh --moodle --configure --verbose
+```
+
+### 2. Konfiguracja
+
+```bash
+# Edycja pliku konfiguracyjnego
 nano config.sh
 
-# 4. Uruchom pipeline
-./pipeline.sh
-```
-
-### Opcje instalacji
-
-Skrypt `install.sh` obsługuje różne tryby instalacji:
-
-```bash
-# Standardowa instalacja
-./install.sh
-
-# Instalacja z modelami AI (Ollama/vLLM)
-./install.sh --models
-
-# Tylko interaktywna konfiguracja API
+# Lub interaktywna konfiguracja:
 ./install.sh --configure
-
-# Pełna instalacja z verbose
-./install.sh --models --configure --verbose
-
-# Pominięcie instalacji zależności systemowych
-./install.sh --skip-deps
 ```
 
-### Ręczna instalacja
-
-1. Sklonuj repozytorium:
+**Wymagane zmienne w `config.sh`:**
 ```bash
-git clone <repository-url>
-cd book-parserX
+# API Qwen
+QWEN_API_KEY="twój-klucz-api"
+QWEN_CODER_URL="http://localhost:8000/v1/chat/completions"
+QWEN_LARGE_MODEL_URL="http://localhost:8000/v1/chat/completions"
+
+# Moodle (opcjonalne)
+MOODLE_URL="https://twoje-moodle.pl"
+MOODLE_TOKEN="twój-token-web-services"
+MOODLE_COURSE_ID="123"
 ```
 
-2. Zainstaluj zależności systemowe:
+### 3. Uruchomienie
+
+```bash
+# Pełny workflow jedną komendą:
+./full_workflow.sh
+
+# Lub krok po kroku przez TUI:
+./pipeline.sh
+
+# Lub interfejs webowy:
+./pipeline.sh webui
+```
+
+## 📋 Szczegółowy Proces
+
+### Krok 1: Przygotowanie plików
+
+Umieść pliki książek w katalogu `input/`:
+```bash
+cp twoja-ksiazka.pdf input/
+```
+
+### Krok 2: Konwersja do TXT
+
+```bash
+./convert_to_txt.sh -v
+```
+
+**Obsługiwane formaty:** `.doc`, `.docx`, `.pdf`, `.odt`, `.rtf`, `.html`, `.md`, `.txt`
+
+### Krok 3: Podział na Chunki
+
+```bash
+./chunk_script.sh /tmp/book.txt
+```
+
+Każdy chunk zawiera metadane JSON:
+- `chunk_id` - unikalny identyfikator
+- `token_count` - liczba tokenów
+- `previous_chunk` / `next_chunk` - linki do sąsiednich chunków
+- `line_start` / `line_end` - zakres linii
+- Kontekst całej książki
+
+### Krok 4: Przepisywanie przez AI
+
+```bash
+./rewrite_chunks.sh
+```
+
+**Proces dwuetapowy:**
+1. **qwen-coder** - analiza struktury, formatowanie, metadane
+2. **qwen3.6-35B-A3B** - głęboka analiza treści i przepisanie
+
+### Krok 5: Składanie i Upload do Moodle
+
+Automatycznie wykonywane przez `full_workflow.sh`:
+```bash
+./full_workflow.sh
+```
+
+Lub ręcznie:
+```bash
+# Złożenie książki
+./pipeline.sh cli
+
+# Upload do Moodle
+./upload_to_moodle.sh -v
+```
+
+## 🛠️ Tryby Uruchomienia
+
+### full_workflow.sh - Kompletny Workflow
+
+```bash
+# Pełny proces
+./full_workflow.sh
+
+# Ze szczegółowym logowaniem
+./full_workflow.sh -v
+
+# Bez przepisywania AI
+./full_workflow.sh --skip-rewrite
+
+# Tylko upload do Moodle
+./full_workflow.sh --moodle-only
+
+# Pomoc
+./full_workflow.sh -h
+```
+
+**Opcje:**
+- `-v, --verbose` - Tryb szczegółowy
+- `-c, --skip-conversion` - Pominięcie konwersji
+- `-u, --skip-chunking` - Pominięcie chunkingu
+- `-r, --skip-rewrite` - Pominięcie przepisywania AI
+- `-m, --skip-moodle` - Pominięcie wysyłki do Moodle
+- `-o, --moodle-only` - Tylko wysyłka do Moodle
+
+### pipeline.sh - Interfejs TUI
+
+```bash
+# Tryb interaktywny (domyślny)
+./pipeline.sh
+
+# Tryb CLI
+./pipeline.sh cli
+
+# Interfejs webowy
+./pipeline.sh webui 8080
+
+# Daemon (usługa w tle)
+./pipeline.sh daemon start
+```
+
+## ⚙️ Konfiguracja
+
+### Zmienne Środowiskowe Qwen
+
+| Zmienna | Opis | Domyślna wartość |
+|---------|------|------------------|
+| `QWEN_API_KEY` | Klucz API Alibaba Cloud | - |
+| `QWEN_AGENT_URL` | Endpoint qwen-agent | localhost:8000 |
+| `QWEN_CODER_URL` | Endpoint qwen-coder | localhost:8000 |
+| `QWEN_LARGE_MODEL_URL` | Endpoint qwen3.6 | localhost:8000 |
+| `MAX_TOKENS` | Maksymalna liczba tokenów | 4096 |
+| `TEMPERATURE` | Kreatywność modelu | 0.7 |
+
+### Zmienne Środowiskowe Moodle
+
+| Zmienna | Opis | Wymagana |
+|---------|------|----------|
+| `MOODLE_URL` | URL instancji Moodle | Tak |
+| `MOODLE_TOKEN` | Token Web Services | Tak |
+| `MOODLE_COURSE_ID` | ID kursu docelowego | Tak |
+| `MOODLE_SECTION_ID` | ID sekcji (opcjonalnie) | Nie |
+
+**Jak uzyskać token Moodle:**
+1. Zaloguj się jako administrator
+2. Przejdź do: *Administracja > Pluginy > Web services > Zarządzaj tokenami*
+3. Utwórz nowy token dla użytkownika z uprawnieniami
+4. Włącz funkcję `core_user_upload_private_file`
+
+## 🔧 Instalacja Krok po Kroku
+
+### 1. Zależności Systemowe
 
 **Debian/Ubuntu:**
 ```bash
@@ -112,329 +240,89 @@ sudo apt-get install -y curl jq git wget unzip python3 python3-pip python3-venv 
 sudo dnf install -y curl jq git wget unzip python3 python3-pip
 ```
 
-**Arch Linux:**
-```bash
-sudo pacman -S curl jq git wget unzip python python-pip pandoc
-```
+### 2. Środowisko Python
 
-3. Utwórz wirtualne środowisko Python:
 ```bash
 python3 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
-pip install requests flask gradio
+pip install -r requirements.txt
 ```
 
-4. Utwórz niezbędne katalogi:
-```bash
-mkdir -p input tmp chunk output logs temp /finish
-```
-
-5. Skonfiguruj zmienne środowiskowe:
-```bash
-cp config.sh.example config.sh
-# Edytuj config.sh i dodaj swoje klucze API
-chmod 600 config.sh
-```
-
-## Użycie
-
-Skrypt automatycznie wczytuje pliki z katalogu `/input` i zapisuje je jako `.txt` w katalogu `/tmp`.
-
-### Skrypty pomocnicze
-
-Projekt zawiera następujące skrypty:
-
-#### 1. convert_to_txt.sh
-
-Skrypt do konwersji różnych formatów plików na `.txt`:
+### 3. Katalogi Robocze
 
 ```bash
-# Konwersja wszystkich plików z katalogu /input
-./convert_to_txt.sh
-
-# Konwersja z konkretnym katalogiem wejściowym i wyjściowym
-./convert_to_txt.sh -i /moje/pliki -o /wyniki
-
-# Konwersja tylko plików PDF w trybie szczegółowym
-./convert_to_txt.sh -f pdf -v
-
-# Nadpisanie istniejących plików
-./convert_to_txt.sh --force
-
-# Wyświetlenie pomocy
-./convert_to_txt.sh --help
+mkdir -p input tmp chunk output finish logs temp
 ```
 
-**Opcje:**
-- `-i, --input DIR` - Katalog wejściowy (domyślnie: /input)
-- `-o, --output DIR` - Katalog wyjściowy (domyślnie: /tmp)
-- `-f, --format FORMAT` - Format plików (doc, docx, pdf, rtf, odt, all)
-- `-v, --verbose` - Tryb szczegółowy
-- `-F, --force` - Nadpisanie istniejących plików
-
-**Obsługiwane formaty:** .doc, .docx, .pdf, .odt, .rtf, .html, .md, .txt
-
-#### 2. chunk_script.sh
-
-Skrypt do dzielenia plików tekstowych na chunki (~4096 tokenów):
+### 4. Instalator Automatyczny
 
 ```bash
-# Podział pliku na chunki
-./chunk_script.sh /tmp/book.txt
+# Standardowa instalacja
+./install.sh
 
-# Z niestandardowym rozmiarem chunka (w tokenach)
-./chunk_script.sh -s 2048 /tmp/book.txt
+# Z konfiguracją API
+./install.sh --configure
 
-# Z innym katalogiem wyjściowym
-./chunk_script.sh -o /moje/chunki /tmp/book.txt
+# Z wsparciem Moodle
+./install.sh --moodle
 
-# Wyświetlenie pomocy
-./chunk_script.sh -h
+# Pełna instalacja
+./install.sh --models --configure --moodle --verbose
 ```
 
-**Opcje:**
-- `-s rozmiar` - Rozmiar chunka w tokenach (domyślnie: 4096)
-- `-o katalog` - Katalog wyjściowy (domyślnie: /chunk)
+## 📊 Monitorowanie i Logi
 
-Każdy chunk zawiera metadane JSON z informacjami o:
-- `chunk_id` - unikalny identyfikator
-- `token_count` - liczba tokenów
-- `previous_chunk` / `next_chunk` - linki do sąsiednich chunków
-- `line_start` / `line_end` - zakres linii w oryginalnym pliku
-
-#### 3. rewrite_chunks.sh
-
-Skrypt do przepisywania chunków z wykorzystaniem modeli AI Qwen:
-
-```bash
-# Przepisanie wszystkich chunków z katalogu /chunk
-./rewrite_chunks.sh
-
-# Z niestandardowym katalogiem chunków
-./rewrite_chunks.sh /moje/chunki
-
-# Wyniki są zapisywane w katalogu /workspace/output
-```
-
-Skrypt wymaga skonfigurowanego pliku `config.sh` z:
-- `QWEN_API_KEY` - klucz API
-- `QWEN_CODER_URL` - endpoint dla qwen-coder
-- `QWEN_LARGE_MODEL_URL` - endpoint dla qwen3.6-35B-A3B
-
-**Proces przepisywania:**
-1. **qwen-coder** - analiza struktury tekstu, formatowanie, generowanie metadanych
-2. **qwen3.6-35B-A3B** - głęboka analiza treści i przepisanie tekstu
-
-Po zakończeniu przepisywania, pipeline automatycznie składa książkę z przetworzonych chunków i zapisuje ją w katalogu `/finish`.
-
-#### 4. webui.py
-
-Interfejs webowy do zarządzania całym procesem:
-
-```bash
-# Uruchomienie WebUI
-python3 webui.py --port 8080
-
-# Lub przez pipeline.sh
-./pipeline.sh webui
-
-# Na konkretnym porcie
-./pipeline.sh webui 8080
-```
-
-**Dostępne zakładki:**
-- Dashboard - przegląd systemu i statystyki
-- Pliki - zarządzanie plikami w katalogach
-- Konwersja - konwersja plików do TXT
-- Chunking - dzielenie na chunki
-- Przepisywanie - AI rewriting chunków
-- Logi - podgląd logów procesu
-- Ustawienia - konfiguracja API
-
-### Tryby uruchomienia pipeline.sh
-
-Skrypt `pipeline.sh` obsługuje pięć trybów pracy:
-
-#### 1. CLI (Command Line Interface)
-
-Tryb tekstowy w terminalu - domyślny tryb działania:
-
-```bash
-# Uruchomienie w trybie interaktywnym CLI
-./pipeline.sh cli
-
-# Lub bezpośrednio (domyślny tryb)
-./pipeline.sh
-
-# Z konkretnym plikiem
-./pipeline.sh cli input/book.txt
-
-# Tryb szczegółowy
-./pipeline.sh cli -v
-```
-
-#### 2. GUI / TUI (Graphical / Text User Interface)
-
-Tryb z interfejsem użytkownika:
-
-```bash
-# Uruchomienie z interfejsem TUI (tekstowym)
-./pipeline.sh tui
-
-# Uruchomienie z interfejsem GUI (graficznym, jeśli dostępny)
-./pipeline.sh gui
-```
-
-#### 3. WebUI (Web Interface)
-
-Uruchomienie serwera webowego z interfejsem przeglądarkowym:
-
-```bash
-# Start serwera WebUI
-./pipeline.sh webui
-
-# Start na konkretnym porcie
-./pipeline.sh webui 8080
-```
-
-Po uruchomieniu interfejs będzie dostępny pod adresem `http://localhost:8080` (lub inny określony port).
-
-#### 4. Daemon (Tryb usługi)
-
-Uruchomienie jako usługa w tle:
-
-```bash
-# Start w trybie daemon
-./pipeline.sh daemon start
-
-# Stop daemon
-./pipeline.sh daemon stop
-
-# Status daemon
-./pipeline.sh daemon status
-
-# Restart daemon
-./pipeline.sh daemon restart
-```
-
-### Obsługiwane formaty plików
-
-- `.doc` - Dokumenty Microsoft Word (starsze wersje)
-- `.odt` - OpenDocument Text
-- `.docx` - Dokumenty Microsoft Word (nowsze wersje)
-- `.xls` - Arkusze kalkulacyjne Microsoft Excel (starsze wersje)
-- `.xlsx` - Arkusze kalkulacyjne Microsoft Excel (nowsze wersje)
-- `.pdf` - Dokumenty PDF
-- `.txt` - Pliki tekstowe
-- `.md` - Pliki Markdown
-
-## Konfiguracja
-
-Edytuj plik `config.sh`, aby ustawić:
-
-- `QWEN_API_KEY` - Twój klucz API
-- `QWEN_AGENT_URL` - Endpoint dla qwen-agent
-- `QWEN_CODER_URL` - Endpoint dla qwen-coder
-- `QWEN_LARGE_MODEL_URL` - Endpoint dla qwen3.6-35B-A3B
-- `MAX_TOKENS` - Maksymalna liczba tokenów na żądanie
-- `TEMPERATURE` - Parametr kreatywności modelu
-
-## Jak działa Pipeline?
-
-1. **Wczytanie i konwersja**: Pliki z katalogu `/input` są konwertowane do formatu `.txt` i zapisywane w `/tmp`
-2. **Chunking**: Pliki z `/tmp` są dzielone na chunki po 4096 tokenów i zapisywane w katalogu `/chunk`
-3. **Etap 1 - qwen-agent**: Analiza struktury książki, podział na rozdziały, identyfikacja głównych wątków
-4. **Etap 2 - qwen-coder**: Przetworzenie struktury, formatowanie, generowanie metadanych
-5. **Etap 3 - qwen3.6-35B-A3B**: Głęboka analiza treści, przepisanie tekstu z zachowaniem stylu i znaczenia
-
-### Struktura chunków
-
-Każdy chunk zawiera metadane JSON z następującymi informacjami:
-
-```json
-{
-  "chunk_id": "unikalny_identifikator_chunka",
-  "token_count": 4096,
-  "previous_chunk": "ID poprzedniego chunka lub null",
-  "next_chunk": "ID następnego chunka lub null",
-  "previous_subsection": "ID poprzedniego podrozdziału lub null",
-  "next_subsection": "ID następnego podrozdziału lub null",
-  "subsection": "ID bieżącego podrozdziału",
-  "chapter": "ID rozdziału",
-  "book_summary": "Streszczenie całej książki",
-  "all_books_summary": "Streszczenie wszystkich książek z katalogu /input",
-  "content": "Przetworzony tekst chunka"
-}
-```
-
-Struktura katalogów po przetworzeniu:
-
-```
-/workspace/
-├── input/              # Pliki wejściowe (książki)
-├── tmp/                # Pliki tymczasowe (.txt po konwersji)
-├── chunk/              # Chunki po 4096 tokenów z metadanymi JSON
-├── output/             # Przetworzone chunki (JSON z przepisaną treścią)
-├── logs/               # Logi procesu
-└── temp/               # Dodatkowe pliki robocze
-
-/finish/                # Finalne książki (złożone z przetworzonych chunków)
-```
-
-## Przykładowy przepływ
-
-```bash
-# 1. Wczytanie książki
-cat input/book.txt | \
-# 2. Przetworzenie przez agenta
-./step1_agent.sh | \
-# 3. Przetworzenie przez codera
-./step2_coder.sh | \
-# 4. Finalne przepisanie
-./step3_rewriter.sh > output/book_rewritten.txt
-```
-
-## Logowanie i Debugowanie
-
-Logi są zapisywane w katalogu `logs/`:
+Logi są zapisywane w `logs/`:
 - `pipeline.log` - Ogólne logi procesu
-- `agent.log` - Logi z qwen-agent
-- `coder.log` - Logi z qwen-coder
-- `rewriter.log` - Logi z qwen3.6-35B-A3B
+- `rewrite.log` - Logi z przepisywania AI
+- `moodle.log` - Logi z uploadu do Moodle
 
-Aby włączyć debugowanie:
+Podgląd logów:
 ```bash
-export DEBUG=1
-./pipeline.sh input/book.txt output/result.txt
+tail -f logs/pipeline.log
 ```
 
-## Rozwiązywanie problemów
+## 🐛 Rozwiązywanie Problemów
 
-### Problem: Brak odpowiedzi od API
+### Brak odpowiedzi od API
 - Sprawdź połączenie sieciowe
-- Zweryfikuj klucze API w config.sh
+- Zweryfikuj klucze API w `config.sh`
 - Sprawdź limity rate-limiting
 
-### Problem: Ucięty output
+### Błąd uploadu do Moodle
+- Upewnij się że Web Services są włączone
+- Sprawdź czy token ma odpowiednie uprawnienia
+- Zweryfikuj `MOODLE_COURSE_ID`
+
+### Ucięty output
 - Zwiększ `MAX_TOKENS` w konfiguracji
 - Podziel tekst na mniejsze segmenty
 
-### Problem: Niska jakość przetwarzania
-- Dostosuj parametr `TEMPERATURE`
+### Niska jakość przetwarzania
+- Dostosuj parametr `TEMPERATURE` (0.3-0.8)
 - Sprawdź prompt engineering w skryptach
 
-## Bezpieczeństwo
+## 🔒 Bezpieczeństwo
 
-- **Nigdy nie commituj** pliku `config.sh` z prawdziwymi kluczami API
+- **Nigdy nie commituj** `config.sh` z prawdziwymi kluczami
 - Dodaj `config.sh` do `.gitignore`
 - Używaj zmiennych środowiskowych dla wrażliwych danych
+- Ustaw uprawnienia: `chmod 600 config.sh`
 
-## Licencja
+## 📈 Wydajność
 
-MIT License - zobacz plik [LICENSE](LICENSE)
+**Optymalizacje:**
+- Równoległe przetwarzanie chunków (w przygotowaniu)
+- Cache przetworzonych chunków
+- Batch upload do Moodle
 
-## Wkład w projekt
+**Zalecenia:**
+- Używaj lokalnego serwera modeli (Ollama/vLLM) dla lepszej wydajności
+- Dostosuj rozmiar chunka do dostępnej pamięci
+- Używaj trybu `--skip-*` do testowania poszczególnych etapów
+
+## 🤝 Wkład w Projekt
 
 1. Fork repozytorium
 2. Utwórz branch (`git checkout -b feature/nowa-funkcjonalnosc`)
@@ -442,36 +330,13 @@ MIT License - zobacz plik [LICENSE](LICENSE)
 4. Push (`git push origin feature/nowa-funkcjonalnosc`)
 5. Otwórz Pull Request
 
-## Kontakt i Wsparcie
+## 📄 Licencja
+
+MIT License - zobacz plik [LICENSE](LICENSE)
+
+## 📞 Kontakt
 
 W przypadku pytań i problemów proszę otworzyć issue w repozytorium.
-
-## Podsumowanie funkcji
-
-### Skrypty bash:
-
-| Skrypt | Funkcja | Kluczowe opcje |
-|--------|---------|----------------|
-| `install.sh` | Instalacja i konfiguracja systemu | `-m`, `-c`, `-s`, `-v`, `--help` [NOWOŚĆ] |
-| `pipeline.sh` | Główny skrypt z interfejsem TUI | `cli`, `tui`, `webui`, `daemon`, `gui` |
-| `convert_to_txt.sh` | Konwersja plików do TXT | `-i`, `-o`, `-f`, `-v`, `--force` |
-| `chunk_script.sh` | Dzielenie na chunki (~4096 tokenów) | `-s`, `-o` |
-| `rewrite_chunks.sh` | Przepisywanie chunków z AI | (brak opcji, wymaga config.sh) |
-| `start_vllm.sh` | Uruchamianie serwera vLLM | (brak opcji, generowany automatycznie) [NOWOŚĆ] |
-
-### Python:
-
-| Skrypt | Funkcja | Opcje |
-|--------|---------|-------|
-| `webui.py` | Interfejs webowy | `--port`, `--host` |
-
-### Tryby pracy pipeline.sh:
-
-1. **CLI** - tryb tekstowy z argumentami wiersza poleceń
-2. **TUI** - interfejs menu w terminalu (domyślny)
-3. **WebUI** - serwer webowy z pełnym interfejsem
-4. **Daemon** - usługa w tle monitorująca katalog input
-5. **GUI** - interfejs graficzny (wymaga zenity)
 
 ---
 
