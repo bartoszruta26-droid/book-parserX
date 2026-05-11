@@ -1,0 +1,67 @@
+{
+  "qwen_coder": {
+    "email": "bartosz.ruta26@gmail.com",
+    "password": "",
+    "base_url": "https://coder.qwen.ai",
+    "login_url": "https://coder.qwen.ai/login",
+    "api_endpoint": "https://coder.qwen.ai/api/v1/chat/completions"
+  },
+  "cluster": {
+    "nodes": [
+      {
+        "id": "rpi4-1",
+        "type": "rpi4",
+        "host": "192.168.1.101",
+        "port": 8080,
+        "cores": 4
+      },
+      {
+        "id": "rpi4-2",
+        "type": "rpi4",
+        "host": "192.168.1.102",
+        "port": 8080,
+        "cores": 4
+      },
+      {
+        "id": "rpi4-3",
+        "type": "rpi4",
+        "host": "192.168.1.103",
+        "port": 8080,
+        "cores": 4
+      },
+      {
+        "id": "rpi1-1",
+        "type": "rpi1",
+        "host": "192.168.1.104",
+        "port": 8080,
+        "cores": 1
+      },
+      {
+        "id": "rpi1-2",
+        "type": "rpi1",
+        "host": "192.168.1.105",
+        "port": 8080,
+        "cores": 1
+      },
+      {
+        "id": "rpi1-3",
+        "type": "rpi1",
+        "host": "192.168.1.106",
+        "port": 8080,
+        "cores": 1
+      }
+    ],
+    "mode": "serial",
+    "current_node": 0
+  },
+  "browser": {
+    "headless": false,
+    "timeout": 60,
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+  },
+  "processing": {
+    "max_retries": 3,
+    "retry_delay": 5,
+    "task_timeout": 300
+  }
+}
